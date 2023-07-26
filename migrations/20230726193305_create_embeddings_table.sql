@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS embeddings (
+    id INTEGER NOT NULL PRIMARY KEY,
+    doc_id TEXT NOT NULL,
+    vector BLOB NOT NULL
+);
