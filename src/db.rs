@@ -1,7 +1,4 @@
-use sqlx::{
-    sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions},
-    Error,
-};
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
 use std::str::FromStr;
 
 use crate::types::{Document, Embedding, Source};
@@ -12,14 +9,14 @@ pub struct Db {
 }
 
 impl Db {
-    pub async fn new(url: &str) -> Result<Self, Error> {
+    pub async fn new(url: &str) -> Result<Self, sqlx::Error> {
         let options = SqliteConnectOptions::from_str(url)?;
         let pool = SqlitePoolOptions::new().connect_with(options).await?;
         sqlx::migrate!("./migrations").run(&pool).await?;
         Ok(Self { pool })
     }
 
-    pub async fn insert_source(&self, data: &Source) -> Result<(), Error> {
+    pub async fn insert_source(&self, data: &Source) -> Result<(), sqlx::Error> {
         let allowed_ext = data
             .allowed_ext
             .clone()
@@ -77,7 +74,7 @@ impl Db {
         })
     }
 
-    pub async fn insert_document(&self, data: &Document) -> Result<(), Error> {
+    pub async fn insert_document(&self, data: &Document) -> Result<(), sqlx::Error> {
         let tokens = data.tokens as u32;
         sqlx::query!(
             r#"
@@ -98,7 +95,7 @@ impl Db {
         Ok(())
     }
 
-    pub async fn insert_embedding(&self, data: &Embedding) -> Result<(), Error> {
+    pub async fn insert_embedding(&self, data: &Embedding) -> Result<(), sqlx::Error> {
         let vector = bincode::serialize(&data.vector).expect("Failed to serialize vector");
         sqlx::query!(
             r#"

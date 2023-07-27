@@ -1,3 +1,4 @@
+use anyhow::{anyhow, Context};
 use axum::{
     extract::{Path, State},
     Json,
@@ -6,10 +7,10 @@ use chrono::Utc;
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 
-use crate::{errors::HTTPError, types::Source, AppState, GitHub};
+use crate::{errors::ServerError, parser, types::Source, AppState};
 
 #[derive(Serialize, Deserialize)]
-pub struct CreateSourcePayload {
+pub struct CreateSourceReq {
     pub owner: String,
     pub repo: String,
     pub branch: String,
@@ -19,30 +20,29 @@ pub struct CreateSourcePayload {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct CreateSourceResponse {
+pub struct CreateSourceResp {
     pub id: String,
 }
 
 pub async fn create_source(
     State(state): State<AppState>,
-    Json(payload): Json<CreateSourcePayload>,
-) -> Result<(StatusCode, Json<CreateSourceResponse>), HTTPError> {
+    Json(payload): Json<CreateSourceReq>,
+) -> Result<(StatusCode, Json<CreateSourceResp>), ServerError> {
     let source: Source = payload.into();
-    let response = CreateSourceResponse {
+    let response = CreateSourceResp {
         id: source.id.clone(),
     };
-    let result = state.db.insert_source(&source).await;
-    match result {
-        Ok(_) => Ok((StatusCode::OK, Json(response))),
-        Err(e) => {
-            tracing::error!("Failed to execute query: {}", e);
-            Err(HTTPError::new("Internal error").with_status(StatusCode::INTERNAL_SERVER_ERROR))
-        }
-    }
+    let _ = state
+        .db
+        .insert_source(&source)
+        .await
+        .context("Failed to insert source")
+        .map_err(|err| ServerError::DbError(err))?;
+    Ok((StatusCode::OK, Json(response)))
 }
 
-impl From<CreateSourcePayload> for Source {
-    fn from(value: CreateSourcePayload) -> Self {
+impl From<CreateSourceReq> for Source {
+    fn from(value: CreateSourceReq) -> Self {
         let id = format!("github.com/{}/{}", value.owner, value.repo);
         Self {
             id,
@@ -58,28 +58,26 @@ impl From<CreateSourcePayload> for Source {
     }
 }
 
-pub async fn fetch_source_content(
+pub async fn parse_source(
     Path(id): Path<String>,
     State(state): State<AppState>,
-) -> Result<StatusCode, HTTPError> {
-    let source = &state.db.select_source(&id).await.map_err(|err| match err {
-        sqlx::Error::RowNotFound => HTTPError::no_content("Unknown id"),
-        _ => {
-            tracing::error!("Failed to select source: {:?}", err);
-            HTTPError::internal_error()
-        }
+) -> Result<StatusCode, ServerError> {
+    let source = state.db.select_source(&id).await.map_err(|err| match err {
+        sqlx::Error::RowNotFound => ServerError::NoContent(anyhow!("Source does not exist")),
+        _ => ServerError::DbError(anyhow!("Failed to select source: {}", err)),
     })?;
 
-    let parser = GitHub::new(&state.github, &source.owner, &source.repo, &source.branch)
+    let parser = parser::GitHub::new(&state.github, &source.owner, &source.repo, &source.branch)
         .allowed_ext(source.allowed_ext.clone())
         .allowed_dirs(source.allowed_dirs.clone())
         .ignored_dirs(source.ignored_dirs.clone())
         .build();
 
-    let documents = parser.get_documents().await.map_err(|err| {
-        tracing::error!("Failed to get documents: {:?}", err);
-        HTTPError::internal_error()
-    })?;
+    let documents = parser
+        .get_documents()
+        .await
+        .context("Failed to get github documents")
+        .map_err(|err| ServerError::GitHubAPIError(err))?;
 
     Ok(StatusCode::OK)
 }
