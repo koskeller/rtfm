@@ -1,9 +1,0 @@
-PUT http://127.0.0.1:8080/sources/create
-{
-    "owner": "vercel",
-    "repo": "next.js",
-    "branch": "canary",
-    "allowed_ext": ["mdx"],
-    "allowed_dirs": ["docs"],
-    "ignored_dirs": ["docs/05-community", "docs/03-pages"]
-}

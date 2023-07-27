@@ -23,3 +23,6 @@ data.db-wal
 
 # Sentence Transformers model
 model/
+
+# Hurl
+hurl/
