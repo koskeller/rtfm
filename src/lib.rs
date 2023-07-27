@@ -1,4 +1,3 @@
-use async_openai::{config::OpenAIConfig, Client};
 use axum::{routing::IntoMakeService, Router, Server};
 use hyper::server::conn::AddrIncoming;
 use octocrab::Octocrab;
@@ -16,9 +15,11 @@ mod middleware;
 pub use middleware::*;
 mod db;
 pub use db::*;
+mod encoder;
 mod errors;
+mod openai;
+pub use openai::*;
 mod parser;
-pub use parser::*;
 mod routes;
 mod types;
 
@@ -26,7 +27,7 @@ mod types;
 pub struct AppState {
     pub db: Db,
     pub github: Octocrab,
-    pub open_ai: Client<OpenAIConfig>,
+    pub open_ai: OpenAI,
     pub cfg: Arc<Configuration>,
 }
 
@@ -34,7 +35,7 @@ pub fn run(
     cfg: Config,
     db: Db,
     github: Octocrab,
-    open_ai: Client<OpenAIConfig>,
+    open_ai: OpenAI,
 ) -> Server<AddrIncoming, IntoMakeService<Router>> {
     let addr = cfg.listen_address.clone();
 
@@ -57,7 +58,8 @@ pub fn run(
         .allow_headers(AllowHeaders::mirror_request())
         .max_age(Duration::from_secs(600));
 
-    let timeout_layer = TimeoutLayer::new(Duration::from_secs(10));
+    // TODO adjust timeout
+    let timeout_layer = TimeoutLayer::new(Duration::from_secs(900));
 
     let app = Router::new()
         .merge(routes::router())

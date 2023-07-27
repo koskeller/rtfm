@@ -1,15 +1,33 @@
 use anyhow::{anyhow, Context};
 use axum::{
     extract::{Path, State},
-    Json,
+    routing::{post, put},
+    Json, Router,
 };
 use chrono::Utc;
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
+use tracing::instrument;
 
-use crate::{errors::ServerError, parser, types::Source, AppState};
+use crate::{
+    encoder,
+    errors::ServerError,
+    parser,
+    types::{Embedding, Source},
+    AppState,
+};
 
-#[derive(Serialize, Deserialize)]
+pub fn routes() -> Router<AppState> {
+    Router::new().nest(
+        "/sources",
+        Router::new()
+            .route("/create", put(create_source))
+            .route("/:source_id/worker/parse", post(parse_source))
+            .route("/:source_id/worker/embeddings", post(create_embeddings)),
+    )
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct CreateSourceReq {
     pub owner: String,
     pub repo: String,
@@ -19,7 +37,7 @@ pub struct CreateSourceReq {
     pub ignored_dirs: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct CreateSourceResp {
     pub id: String,
 }
@@ -32,13 +50,15 @@ pub async fn create_source(
     let response = CreateSourceResp {
         id: source.id.clone(),
     };
+    // TODO check collection uniquiness
     let _ = state
         .db
         .insert_source(&source)
         .await
         .context("Failed to insert source")
         .map_err(|err| ServerError::DbError(err))?;
-    Ok((StatusCode::OK, Json(response)))
+
+    Ok((StatusCode::CREATED, Json(response)))
 }
 
 impl From<CreateSourceReq> for Source {
@@ -59,13 +79,17 @@ impl From<CreateSourceReq> for Source {
 }
 
 pub async fn parse_source(
-    Path(id): Path<String>,
+    Path(source_id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, ServerError> {
-    let source = state.db.select_source(&id).await.map_err(|err| match err {
-        sqlx::Error::RowNotFound => ServerError::NoContent(anyhow!("Source does not exist")),
-        _ => ServerError::DbError(anyhow!("Failed to select source: {}", err)),
-    })?;
+    let source = state
+        .db
+        .select_source(&source_id)
+        .await
+        .map_err(|err| match err {
+            sqlx::Error::RowNotFound => ServerError::NoContent(anyhow!("Source does not exist")),
+            _ => ServerError::DbError(anyhow!("Failed to select source: {}", err)),
+        })?;
 
     let parser = parser::GitHub::new(&state.github, &source.owner, &source.repo, &source.branch)
         .allowed_ext(source.allowed_ext.clone())
@@ -76,8 +100,69 @@ pub async fn parse_source(
     let documents = parser
         .get_documents()
         .await
-        .context("Failed to get github documents")
+        .context("Failed to parse github documents")
         .map_err(|err| ServerError::GitHubAPIError(err))?;
+
+    let _ = state
+        .db
+        .insert_documents(&documents)
+        .await
+        .context("Failed to insert documents")
+        .map_err(|err| ServerError::DbError(err))?;
+
+    Ok(StatusCode::OK)
+}
+
+pub async fn create_embeddings(
+    Path(source_id): Path<String>,
+    State(state): State<AppState>,
+) -> Result<StatusCode, ServerError> {
+    let documents = state
+        .db
+        .query_documents_by_source(&source_id)
+        .await
+        .context("Failed queries documents")
+        .map_err(|err| ServerError::DbError(err))?;
+
+    for doc in documents {
+        let chunks = encoder::split_to_chunks(&doc.blob)
+            .context("Failed to split document to chunks")
+            .map_err(|err| ServerError::EncodingError(err))?;
+        let mut embeddings = state
+            .open_ai
+            .create_embeddings(&chunks)
+            .await
+            .context("Failed to create OpenAI embeddings")
+            .map_err(|err| ServerError::OpenAIAPIError(err))?;
+        embeddings.sort_by(|a, b| a.index.cmp(&b.index));
+
+        if chunks.len() != embeddings.len() {
+            return Err(ServerError::EncodingError(anyhow!(
+                "Chunks and embeddings len does not match: chunks {}, embeddings: {}",
+                chunks.len(),
+                embeddings.len()
+            )));
+        }
+
+        let embeddings = chunks
+            .into_iter()
+            .zip(embeddings)
+            .map(|(chunk, embedding)| Embedding {
+                source_id: doc.source_id.clone(),
+                doc_path: doc.path.clone(),
+                chunk: embedding.index,
+                blob: chunk,
+                vector: embedding.embedding,
+            })
+            .collect::<Vec<Embedding>>();
+
+        let _ = state
+            .db
+            .insert_embeddings(&embeddings)
+            .await
+            .context("Failed to inserts embeddings")
+            .map_err(|err| ServerError::DbError(err))?;
+    }
 
     Ok(StatusCode::OK)
 }

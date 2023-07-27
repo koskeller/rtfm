@@ -1,5 +1,5 @@
 use octocrab::Octocrab;
-use server::{setup_tracing, Configuration, Db};
+use server::{setup_tracing, Configuration, Db, OpenAI};
 
 #[tokio::main]
 async fn main() -> Result<(), hyper::Error> {
@@ -23,7 +23,7 @@ async fn main() -> Result<(), hyper::Error> {
         .build()
         .expect("Failed to build Octocrab");
 
-    let open_ai = async_openai::Client::new();
+    let open_ai = OpenAI::new();
 
     // Spin up our server.
     tracing::info!("Starting server on {}...", cfg.listen_address);

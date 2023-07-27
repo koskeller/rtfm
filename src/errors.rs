@@ -10,6 +10,7 @@ pub enum ServerError {
     DbError(Error),
     ValidationError(Error),
     NoContent(Error),
+    EncodingError(Error),
     GitHubAPIError(Error),
     OpenAIAPIError(Error),
 }
@@ -37,6 +38,7 @@ impl IntoResponse for ServerError {
                 tracing::error!("{:?}", err);
                 HTTPError::iternal_error().into_response()
             }
+            ServerError::EncodingError(_) => todo!(),
         }
     }
 }

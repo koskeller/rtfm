@@ -1,6 +1,5 @@
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
-use markdown::ParseOptions;
 use octocrab::Octocrab;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
@@ -34,14 +33,14 @@ impl GitHub {
         let paths = self.get_paths().await?;
         let paths = self.filter_paths(paths);
         for path in paths {
-            let id = format!("github.com/{}/{}/{}", self.owner, self.repo, path);
+            let source_id = format!("github.com/{}/{}", self.owner, self.repo);
             let blob = self.get_content(&path).await?;
             let created_at = Utc::now();
             let updated_at = Utc::now();
             let checksum = calculate_checksum(&blob);
             let tokens = self.token_len(&blob);
             documents.push(Document {
-                id,
+                source_id,
                 path,
                 checksum,
                 tokens,
@@ -227,30 +226,6 @@ pub enum TreeType {
 
 fn calculate_checksum(s: &str) -> u32 {
     crc32fast::hash(s.as_bytes())
-}
-
-fn split_to_chunks(value: &str) -> Vec<String> {
-    let mut chunks = Vec::new();
-    let tree =
-        markdown::to_mdast(value, &ParseOptions::default()).expect("Failed to build markdown tree");
-    let mut prev_offset = 0;
-    let root = tree.children().unwrap();
-    for node in root {
-        match node {
-            markdown::mdast::Node::Heading(heading) => {
-                if heading.depth > 3 {
-                    continue;
-                }
-                if let Some(pos) = &heading.position {
-                    let chunk = &value[prev_offset..pos.start.offset];
-                    chunks.push(chunk.to_owned());
-                    prev_offset = pos.start.offset;
-                }
-            }
-            _ => {}
-        }
-    }
-    chunks
 }
 
 pub struct GitHubBuilder {
