@@ -12,7 +12,7 @@ pub struct Embeddings {
 
 impl Embeddings {
     pub fn new() -> Result<Self, RustBertError> {
-        let model = SentenceEmbeddingsBuilder::local("all-distilroberta-v1")
+        let model = SentenceEmbeddingsBuilder::local("model")
             .with_device(tch::Device::cuda_if_available())
             .create_model()?;
         Ok(Self {

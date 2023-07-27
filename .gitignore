@@ -20,3 +20,6 @@ Cargo.lock
 data.db
 data.db-shm
 data.db-wal
+
+# Sentence Transformers model
+model/
