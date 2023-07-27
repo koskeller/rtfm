@@ -7,7 +7,7 @@ use axum::{
 use chrono::Utc;
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
-use tracing::instrument;
+use tokio::time::Instant;
 
 use crate::{
     encoder,
@@ -42,13 +42,13 @@ pub struct CreateSourceResp {
     pub id: String,
 }
 
-#[instrument(name = "Creating source", skip(state))]
 pub async fn create_source(
     State(state): State<AppState>,
     Json(payload): Json<CreateSourceReq>,
 ) -> Result<(StatusCode, Json<CreateSourceResp>), ServerError> {
-    tracing::trace!(
-        "Creating source {}/{}/{}",
+    tracing::info!(
+        ?payload,
+        "Creating source {}:{}:{}",
         payload.owner,
         payload.repo,
         payload.branch
@@ -71,7 +71,7 @@ pub async fn create_source(
 
 impl From<CreateSourceReq> for Source {
     fn from(value: CreateSourceReq) -> Self {
-        let id = format!("github.com/{}/{}/{}", value.owner, value.repo, value.branch);
+        let id = format!("github.com:{}:{}:{}", value.owner, value.repo, value.branch);
         Self {
             id,
             owner: value.owner,
@@ -99,7 +99,9 @@ pub async fn parse_source(
             _ => ServerError::DbError(anyhow!("Failed to select source: {}", err)),
         })?;
 
-    let tokenizer = tiktoken_rs::cl100k_base().expect("Failed to instantiate tokenizer");
+    let tokenizer = tiktoken_rs::cl100k_base()
+        .context("Failed to instantiate tokenizer")
+        .map_err(|err| ServerError::EncodingError(err))?;
     let parser = parser::GitHubParser::new(&source, &state.github, &tokenizer);
 
     let documents = parser
@@ -126,20 +128,24 @@ pub async fn create_embeddings(
         .db
         .query_documents_by_source(&source_id)
         .await
-        .context("Failed queries documents")
+        .context("Failed to query documents")
         .map_err(|err| ServerError::DbError(err))?;
+    tracing::info!("Got {} documents", documents.len());
 
     for doc in documents {
         let chunks = encoder::split_to_chunks(&doc.blob)
             .context("Failed to split document to chunks")
             .map_err(|err| ServerError::EncodingError(err))?;
-        let mut embeddings = state
-            .open_ai
-            .create_embeddings(&chunks)
+        tracing::info!("Document {} has {} chunks", doc.path, chunks.len());
+
+        let instant = Instant::now();
+        let embeddings = state
+            .embeddings
+            .encode(&chunks)
             .await
-            .context("Failed to create OpenAI embeddings")
-            .map_err(|err| ServerError::OpenAIAPIError(err))?;
-        embeddings.sort_by(|a, b| a.index.cmp(&b.index));
+            .context("Failed to create embeddings")
+            .map_err(|err| ServerError::Embeddings(err))?;
+        tracing::info!("Created embeddings, elapsed {:?}", instant.elapsed());
 
         if chunks.len() != embeddings.len() {
             return Err(ServerError::EncodingError(anyhow!(
@@ -152,21 +158,24 @@ pub async fn create_embeddings(
         let embeddings = chunks
             .into_iter()
             .zip(embeddings)
-            .map(|(chunk, embedding)| Embedding {
+            .enumerate()
+            .map(|(index, (chunk, embedding))| Embedding {
                 source_id: doc.source_id.clone(),
                 doc_path: doc.path.clone(),
-                chunk: embedding.index,
+                chunk: index,
                 blob: chunk,
-                vector: embedding.embedding,
+                vector: embedding,
             })
             .collect::<Vec<Embedding>>();
 
+        let instant = Instant::now();
         let _ = state
             .db
             .insert_embeddings(&embeddings)
             .await
             .context("Failed to inserts embeddings")
             .map_err(|err| ServerError::DbError(err))?;
+        tracing::info!("Saved embeddings, elapsed {:?}", instant.elapsed());
     }
 
     Ok(StatusCode::OK)

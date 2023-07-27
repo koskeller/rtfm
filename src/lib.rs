@@ -19,15 +19,20 @@ mod encoder;
 mod errors;
 mod openai;
 pub use openai::*;
+mod embeddings;
+pub use embeddings::Embeddings;
 mod parser;
 mod routes;
+mod tinyvector;
+pub use tinyvector::{Distance, Tiny, Tinyvector};
 mod types;
 
 #[derive(Clone)]
 pub struct AppState {
     pub db: Db,
     pub github: Octocrab,
-    pub open_ai: OpenAI,
+    pub embeddings: Embeddings,
+    pub tinyvector: Tinyvector,
     pub cfg: Arc<Configuration>,
 }
 
@@ -35,18 +40,20 @@ pub fn run(
     cfg: Config,
     db: Db,
     github: Octocrab,
-    open_ai: OpenAI,
+    embeddings: Embeddings,
+    tinyvector: Tinyvector,
 ) -> Server<AddrIncoming, IntoMakeService<Router>> {
     let addr = cfg.listen_address.clone();
 
     let app_state = AppState {
         db,
         github,
+        embeddings,
+        tinyvector,
         cfg,
-        open_ai,
     };
 
-    let trace_layer = telemetry::trace_layer();
+    // let trace_layer = telemetry::trace_layer();
     let (req_headers_layer, resp_headers_layer) = telemetry::sensitive_headers_layers();
 
     let request_id_layer = middleware::request_id_layer();
@@ -67,7 +74,7 @@ pub fn run(
         .layer(timeout_layer)
         .layer(resp_headers_layer)
         .layer(propagate_request_id_layer)
-        .layer(trace_layer)
+        // .layer(trace_layer)
         .layer(req_headers_layer)
         .layer(request_id_layer)
         .with_state(app_state);

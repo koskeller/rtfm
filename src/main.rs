@@ -1,5 +1,6 @@
 use octocrab::Octocrab;
-use server::{setup_tracing, Configuration, Db, OpenAI};
+use server::{setup_tracing, Configuration, Db, Embeddings, Tiny, Tinyvector};
+use tokio::time::Instant;
 
 #[tokio::main]
 async fn main() -> Result<(), hyper::Error> {
@@ -18,14 +19,44 @@ async fn main() -> Result<(), hyper::Error> {
     tracing::debug!("Initializing db pool");
     let db = Db::new(&cfg.db_dsn).await.expect("Failed to setup db");
 
+    // Initialize GitHub client.
     let gh = Octocrab::builder()
         .personal_token(cfg.github_token.clone())
         .build()
         .expect("Failed to build Octocrab");
 
-    let open_ai = OpenAI::new();
+    // Initialize Embeddings model.
+    let embeddings = Embeddings::new().expect("Failed to load embeddings model");
+
+    // Initialize Tinyvector.
+    let tiny = Tiny::new().extension();
+    // load_tinyvector(&db, tiny.clone()).await;
 
     // Spin up our server.
     tracing::info!("Starting server on {}...", cfg.listen_address);
-    server::run(cfg, db, gh, open_ai).await
+    server::run(cfg, db, gh, embeddings, tiny).await
+}
+
+async fn load_tinyvector(db: &Db, tiny: Tinyvector) {
+    let instant = Instant::now();
+    let embeddings = db
+        .query_embeddings_by_source("github.com:vercel:next.js:canary")
+        .await
+        .expect("Failed to query embeddings");
+
+    tiny.clone()
+        .write_owned()
+        .await
+        .create_collection("default".to_string())
+        .expect("Failed to create tinyvector collection");
+
+    for embedding in embeddings {
+        let _ = tiny.write().await.insert_into_collection(
+            "default",
+            embedding.doc_path,
+            embedding.vector,
+            embedding.blob,
+        );
+    }
+    tracing::info!("Loaded tinyvector, elapsed {:?}", instant.elapsed());
 }

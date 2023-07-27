@@ -12,7 +12,7 @@ pub enum ServerError {
     NoContent(Error),
     EncodingError(Error),
     GitHubAPIError(Error),
-    OpenAIAPIError(Error),
+    Embeddings(Error),
 }
 
 impl IntoResponse for ServerError {
@@ -34,7 +34,7 @@ impl IntoResponse for ServerError {
                     .with_status(StatusCode::NO_CONTENT)
                     .into_response()
             }
-            ServerError::GitHubAPIError(err) | ServerError::OpenAIAPIError(err) => {
+            ServerError::GitHubAPIError(err) | ServerError::Embeddings(err) => {
                 tracing::error!("{:?}", err);
                 HTTPError::iternal_error().into_response()
             }

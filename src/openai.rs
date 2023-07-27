@@ -27,4 +27,13 @@ impl OpenAI {
         let emb = self.client.embeddings().create(req).await?;
         Ok(emb.data)
     }
+
+    pub async fn create_embedding(&self, text: &str) -> Result<Vec<Embedding>, OpenAIError> {
+        let req = CreateEmbeddingRequestArgs::default()
+            .model("text-embedding-ada-002")
+            .input(text)
+            .build()?;
+        let emb = self.client.embeddings().create(req).await?;
+        Ok(emb.data)
+    }
 }

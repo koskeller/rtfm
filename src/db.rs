@@ -172,6 +172,7 @@ impl Db {
 
     pub async fn insert_embedding(&self, data: &Embedding) -> Result<(), sqlx::Error> {
         let vector = bincode::serialize(&data.vector).expect("Failed to serialize vector");
+        let chunk = data.chunk as u32;
         sqlx::query!(
             r#"
         INSERT OR REPLACE INTO embeddings (source_id, doc_path, chunk, blob, vector)
@@ -179,7 +180,7 @@ impl Db {
         "#,
             data.source_id,
             data.doc_path,
-            data.chunk,
+            chunk,
             data.blob,
             vector,
         )
@@ -192,6 +193,7 @@ impl Db {
         let mut tx = self.pool.begin().await?;
         for data in embeddings {
             let vector = bincode::serialize(&data.vector).expect("Failed to serialize vector");
+            let chunk = data.chunk as u32;
             sqlx::query!(
                 r#"
         INSERT OR REPLACE INTO embeddings (source_id, doc_path, chunk, blob, vector)
@@ -199,7 +201,7 @@ impl Db {
         "#,
                 data.source_id,
                 data.doc_path,
-                data.chunk,
+                chunk,
                 data.blob,
                 vector,
             )
@@ -228,7 +230,7 @@ impl Db {
             embeddings.push(Embedding {
                 source_id: row.source_id,
                 doc_path: row.doc_path,
-                chunk: row.chunk as u32,
+                chunk: row.chunk as usize,
                 blob: row.blob,
                 vector,
             });
