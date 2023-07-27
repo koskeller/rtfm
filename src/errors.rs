@@ -8,7 +8,7 @@ use serde_json::json;
 
 pub enum ServerError {
     DbError(Error),
-    ValidationError(Error),
+    // ValidationError(Error),
     NoContent(Error),
     EncodingError(Error),
     GitHubAPIError(Error),
@@ -22,12 +22,12 @@ impl IntoResponse for ServerError {
                 tracing::error!("{:?}", err);
                 HTTPError::iternal_error().into_response()
             }
-            ServerError::ValidationError(err) => {
-                tracing::error!("{:?}", err);
-                HTTPError::new(err)
-                    .with_status(StatusCode::BAD_REQUEST)
-                    .into_response()
-            }
+            // ServerError::ValidationError(err) => {
+            //     tracing::error!("{:?}", err);
+            //     HTTPError::new(err)
+            //         .with_status(StatusCode::BAD_REQUEST)
+            //         .into_response()
+            // }
             ServerError::NoContent(err) => {
                 tracing::error!("{:?}", err);
                 HTTPError::new(err)

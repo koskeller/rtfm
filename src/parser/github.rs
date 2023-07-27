@@ -1,46 +1,40 @@
 use anyhow::{anyhow, Result};
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use octocrab::Octocrab;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
 use tiktoken_rs::CoreBPE;
 use tokio::time::Instant;
 
-use crate::types::Document;
+use crate::types::{Document, Source};
 
-pub struct GitHub {
-    client: Octocrab,
-    tokenizer: CoreBPE,
-    owner: String,
-    branch: String,
-    repo: String,
-    // Without dot: ["md", "markdown"]
-    allowed_ext: HashSet<String>,
-    // Without leading slash: ["website", "website/docs"]
-    allowed_dirs: HashSet<String>,
-    // Without leading slash: ["website/cdtk"]
-    ignored_dirs: HashSet<String>,
+pub struct GitHubParser<'a, 'b, 'c> {
+    source: &'a Source,
+    client: &'b Octocrab,
+    tokenizer: &'c CoreBPE,
 }
 
-impl GitHub {
-    pub fn new(client: &Octocrab, owner: &str, repo: &str, branch: &str) -> GitHubBuilder {
-        GitHubBuilder::new(client, owner, repo, branch)
+impl<'a, 'b, 'c> GitHubParser<'a, 'b, 'c> {
+    pub fn new(source: &'a Source, client: &'b Octocrab, tokenizer: &'c CoreBPE) -> Self {
+        Self {
+            source,
+            client,
+            tokenizer,
+        }
     }
 
-    pub async fn get_documents(&self) -> anyhow::Result<Vec<Document>> {
+    pub async fn get_documents(&self) -> Result<Vec<Document>> {
         let mut documents = Vec::new();
         let paths = self.get_paths().await?;
         let paths = self.filter_paths(paths);
         for path in paths {
-            let source_id = format!("github.com/{}/{}", self.owner, self.repo);
             let blob = self.get_content(&path).await?;
             let created_at = Utc::now();
             let updated_at = Utc::now();
             let checksum = calculate_checksum(&blob);
             let tokens = self.token_len(&blob);
             documents.push(Document {
-                source_id,
+                source_id: self.source.id.clone(),
                 path,
                 checksum,
                 tokens,
@@ -55,7 +49,7 @@ impl GitHub {
     async fn get_paths(&self) -> Result<Vec<Path>> {
         let route = format!(
             "/repos/{}/{}/git/trees/{}?recursive='true'",
-            &self.owner, &self.repo, &self.branch
+            &self.source.owner, &self.source.repo, &self.source.branch
         );
         println!("Getting tree {}", route);
         let resp: TreeResponse = self.client.get(route, None::<&()>).await?;
@@ -80,48 +74,51 @@ impl GitHub {
             .collect()
     }
 
-    pub async fn get_changed_files(
-        &self,
-        since: DateTime<Utc>,
-    ) -> Result<HashMap<Path, FileStatus>> {
-        let repository = self.client.repos(&self.owner, &self.repo);
+    // pub async fn get_changed_files(
+    //     &self,
+    //     since: DateTime<Utc>,
+    // ) -> Result<HashMap<Path, FileStatus>> {
+    //     let repository = self.client.repos(&self.source.owner, &self.source.repo);
 
-        let mut paths: HashMap<Path, FileStatus> = HashMap::new();
-        let mut page: u32 = 1;
-        loop {
-            let commits = repository
-                .list_commits()
-                .since(since)
-                .per_page(100)
-                .page(page)
-                .send()
-                .await?;
+    //     let mut paths: HashMap<Path, FileStatus> = HashMap::new();
+    //     let mut page: u32 = 1;
+    //     loop {
+    //         let commits = repository
+    //             .list_commits()
+    //             .since(since)
+    //             .per_page(100)
+    //             .page(page)
+    //             .send()
+    //             .await?;
 
-            for commit in commits.items {
-                let route = format!("/repos/{}/{}/commits/{}", self.owner, self.repo, commit.sha);
-                let commit: Commit = self.client.get(route, None::<&()>).await?;
-                for file in commit.files {
-                    if self.is_target_file(&file.filename) {
-                        paths.insert(file.filename, file.status);
-                    }
-                }
-            }
+    //         for commit in commits.items {
+    //             let route = format!(
+    //                 "/repos/{}/{}/commits/{}",
+    //                 self.source.owner, self.source.repo, commit.sha
+    //             );
+    //             let commit: Commit = self.client.get(route, None::<&()>).await?;
+    //             for file in commit.files {
+    //                 if self.is_target_file(&file.filename) {
+    //                     paths.insert(file.filename, file.status);
+    //                 }
+    //             }
+    //         }
 
-            if commits.next.is_some() {
-                page += 1;
-            } else {
-                break;
-            }
-        }
+    //         if commits.next.is_some() {
+    //             page += 1;
+    //         } else {
+    //             break;
+    //         }
+    //     }
 
-        Ok(paths)
-    }
+    //     Ok(paths)
+    // }
 
     pub async fn get_content(&self, path: &Path) -> Result<String> {
         let instant = Instant::now();
         let url = format!(
             "https://raw.githubusercontent.com/{}/{}/{}/{}",
-            &self.owner, &self.repo, &self.branch, path,
+            &self.source.owner, &self.source.repo, &self.source.branch, path,
         );
         let resp = reqwest::get(&url).await?;
         println!("getting {} took {:?}", url, instant.elapsed());
@@ -139,19 +136,25 @@ impl GitHub {
     }
 
     fn is_target_file(&self, path: &Path) -> bool {
-        for dir in &self.allowed_dirs {
+        for dir in &self.source.allowed_dirs {
             if !path.starts_with(dir) {
                 return false;
             }
         }
 
-        for dir in &self.ignored_dirs {
+        for dir in &self.source.ignored_dirs {
             if path.starts_with(dir) {
                 return false;
             }
         }
 
-        if self.allowed_ext.len() > 0 && !self.allowed_ext.iter().any(|ext| path.ends_with(ext)) {
+        if self.source.allowed_ext.len() > 0
+            && !self
+                .source
+                .allowed_ext
+                .iter()
+                .any(|ext| path.ends_with(ext))
+        {
             return false;
         }
 
@@ -226,61 +229,4 @@ pub enum TreeType {
 
 fn calculate_checksum(s: &str) -> u32 {
     crc32fast::hash(s.as_bytes())
-}
-
-pub struct GitHubBuilder {
-    client: Octocrab,
-    tokenizer: CoreBPE,
-    owner: String,
-    repo: String,
-    branch: String,
-    allowed_ext: HashSet<String>,
-    allowed_dirs: HashSet<String>,
-    ignored_dirs: HashSet<String>,
-}
-
-impl GitHubBuilder {
-    fn new(client: &Octocrab, owner: &str, repo: &str, branch: &str) -> Self {
-        GitHubBuilder {
-            client: client.clone(),
-            owner: owner.to_owned(),
-            repo: repo.to_owned(),
-            branch: branch.to_owned(),
-            allowed_ext: HashSet::new(),
-            allowed_dirs: HashSet::new(),
-            ignored_dirs: HashSet::new(),
-            tokenizer: tiktoken_rs::cl100k_base().expect("Failed to instantiate tokenizer"),
-        }
-    }
-
-    /// Without dot: "md", "markdown"
-    pub fn allowed_ext(mut self, allowed_ext: HashSet<String>) -> Self {
-        self.allowed_ext = allowed_ext;
-        self
-    }
-
-    /// Without leading slash: "website", "website/docs"
-    pub fn allowed_dirs(mut self, allowed_dirs: HashSet<String>) -> Self {
-        self.allowed_dirs = allowed_dirs;
-        self
-    }
-
-    /// Without leading slash: "website/cdtk"
-    pub fn ignored_dirs(mut self, ignored_dirs: HashSet<String>) -> Self {
-        self.ignored_dirs = ignored_dirs;
-        self
-    }
-
-    pub fn build(self) -> GitHub {
-        GitHub {
-            client: self.client,
-            tokenizer: self.tokenizer,
-            owner: self.owner,
-            branch: self.branch,
-            repo: self.repo,
-            allowed_ext: self.allowed_ext,
-            allowed_dirs: self.allowed_dirs,
-            ignored_dirs: self.ignored_dirs,
-        }
-    }
 }

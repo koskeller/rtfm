@@ -42,10 +42,18 @@ pub struct CreateSourceResp {
     pub id: String,
 }
 
+#[instrument(name = "Creating source", skip(state))]
 pub async fn create_source(
     State(state): State<AppState>,
     Json(payload): Json<CreateSourceReq>,
 ) -> Result<(StatusCode, Json<CreateSourceResp>), ServerError> {
+    tracing::trace!(
+        "Creating source {}/{}/{}",
+        payload.owner,
+        payload.repo,
+        payload.branch
+    );
+
     let source: Source = payload.into();
     let response = CreateSourceResp {
         id: source.id.clone(),
@@ -63,7 +71,7 @@ pub async fn create_source(
 
 impl From<CreateSourceReq> for Source {
     fn from(value: CreateSourceReq) -> Self {
-        let id = format!("github.com/{}/{}", value.owner, value.repo);
+        let id = format!("github.com/{}/{}/{}", value.owner, value.repo, value.branch);
         Self {
             id,
             owner: value.owner,
@@ -91,11 +99,8 @@ pub async fn parse_source(
             _ => ServerError::DbError(anyhow!("Failed to select source: {}", err)),
         })?;
 
-    let parser = parser::GitHub::new(&state.github, &source.owner, &source.repo, &source.branch)
-        .allowed_ext(source.allowed_ext.clone())
-        .allowed_dirs(source.allowed_dirs.clone())
-        .ignored_dirs(source.ignored_dirs.clone())
-        .build();
+    let tokenizer = tiktoken_rs::cl100k_base().expect("Failed to instantiate tokenizer");
+    let parser = parser::GitHubParser::new(&source, &state.github, &tokenizer);
 
     let documents = parser
         .get_documents()

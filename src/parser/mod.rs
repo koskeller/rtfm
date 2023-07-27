@@ -1,2 +1,2 @@
 mod github;
-pub(crate) use github::GitHub;
+pub(crate) use github::GitHubParser;

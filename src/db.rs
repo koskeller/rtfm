@@ -255,7 +255,7 @@ mod tests {
             owner: "foo".to_string(),
             repo: "bar".to_string(),
             branch: "master".to_string(),
-            allowed_ext: HashSet::from(["mdx".to_string(), "md".to_string()]),
+            allowed_ext: HashSet::from(["mdx".to_string()]),
             allowed_dirs: HashSet::from(["docs".to_string()]),
             ignored_dirs: HashSet::from(["docs/src".to_string()]),
             created_at: t,
@@ -273,7 +273,7 @@ mod tests {
         assert_eq!(row.owner, "foo");
         assert_eq!(row.repo, "bar");
         assert_eq!(row.branch, "master");
-        assert_eq!(row.allowed_ext, "mdx;md");
+        assert_eq!(row.allowed_ext, "mdx");
         assert_eq!(row.allowed_dirs, "docs");
         assert_eq!(row.ignored_dirs, "docs/src");
         assert_eq!(row.created_at, t.to_rfc3339());
