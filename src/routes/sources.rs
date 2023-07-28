@@ -137,8 +137,12 @@ pub async fn create_embeddings(
             .context("Failed to split document to chunks")
             .map_err(|err| ServerError::EncodingError(err))?;
         tracing::info!("Document {} has {} chunks", doc.path, chunks.len());
+        if chunks.len() == 0 {
+            continue;
+        }
 
         let instant = Instant::now();
+        tracing::info!(?chunks, "Creating embeddings");
         let embeddings = state
             .embeddings
             .encode(&chunks)
@@ -146,7 +150,6 @@ pub async fn create_embeddings(
             .context("Failed to create embeddings")
             .map_err(|err| ServerError::Embeddings(err))?;
         tracing::info!("Created embeddings, elapsed {:?}", instant.elapsed());
-
         if chunks.len() != embeddings.len() {
             return Err(ServerError::EncodingError(anyhow!(
                 "Chunks and embeddings len does not match: chunks {}, embeddings: {}",
@@ -162,7 +165,7 @@ pub async fn create_embeddings(
             .map(|(index, (chunk, embedding))| Embedding {
                 source_id: doc.source_id.clone(),
                 doc_path: doc.path.clone(),
-                chunk: index,
+                chunk_index: index,
                 blob: chunk,
                 vector: embedding,
             })

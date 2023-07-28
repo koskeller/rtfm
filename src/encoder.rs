@@ -15,7 +15,9 @@ pub fn split_to_chunks(value: &str) -> Result<Vec<String>> {
                 }
                 if let Some(pos) = &heading.position {
                     let chunk = &value[prev_offset..pos.start.offset];
-                    chunks.push(chunk.to_owned());
+                    if chunk.len() > 8 {
+                        chunks.push(chunk.to_owned());
+                    }
                     prev_offset = pos.start.offset;
                 }
             }

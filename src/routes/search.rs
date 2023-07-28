@@ -29,6 +29,7 @@ pub async fn search(
     params: Query<SearchQuery>,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<SearchResp>>, ServerError> {
+    tracing::info!("Searching '{}'", params.query);
     let instant = Instant::now();
     let query = state
         .embeddings
@@ -36,9 +37,7 @@ pub async fn search(
         .await
         .context("Failed to create embedding")
         .map_err(|err| ServerError::Embeddings(err))?;
-    tracing::info!("Encoded embedding, elapsed {:?}", instant.elapsed());
 
-    let instant = Instant::now();
     let vectors = state
         .tinyvector
         .read()
@@ -47,7 +46,6 @@ pub async fn search(
         .context("Failed to get Tinyvector collection")
         .map_err(|err| ServerError::Embeddings(err))?
         .get_similarity(&query[0], 10);
-    tracing::info!("Search completed, elapsed {:?}", instant.elapsed());
 
     let mut result = Vec::with_capacity(vectors.len());
     for n in vectors {
@@ -57,6 +55,7 @@ pub async fn search(
             text: n.embedding.blob,
         })
     }
+    tracing::info!("Search completed, elapsed {:?}", instant.elapsed());
 
     Ok(Json(result))
 }

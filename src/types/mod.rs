@@ -31,7 +31,7 @@ pub struct Document {
 pub struct Embedding {
     pub source_id: String,
     pub doc_path: String,
-    pub chunk: usize, // TODO rename to index
+    pub chunk_index: usize,
     pub blob: String,
     pub vector: Vec<f32>,
 }

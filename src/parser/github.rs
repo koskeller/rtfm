@@ -51,7 +51,7 @@ impl<'a, 'b, 'c> GitHubParser<'a, 'b, 'c> {
             "/repos/{}/{}/git/trees/{}?recursive='true'",
             &self.source.owner, &self.source.repo, &self.source.branch
         );
-        tracing::info!("Getting tree {}", route);
+        tracing::info!("Getting git tree {}", route);
         let resp: TreeResponse = self.client.get(route, None::<&()>).await?;
 
         let paths: Vec<Path> = resp
@@ -121,7 +121,7 @@ impl<'a, 'b, 'c> GitHubParser<'a, 'b, 'c> {
             &self.source.owner, &self.source.repo, &self.source.branch, path,
         );
         let resp = reqwest::get(&url).await?;
-        tracing::info!("getting {} took {:?}", url, instant.elapsed());
+        tracing::info!("Getting '{}', elapsed {:?}", url, instant.elapsed());
         match resp.status() {
             StatusCode::OK => match resp.text().await {
                 Ok(text) => Ok(text),
@@ -164,7 +164,7 @@ impl<'a, 'b, 'c> GitHubParser<'a, 'b, 'c> {
     fn token_len(&self, s: &str) -> usize {
         let instant = Instant::now();
         let len = self.tokenizer.encode_with_special_tokens(&s).len();
-        tracing::info!("tokenizing took {:?}", instant.elapsed());
+        tracing::info!("Tokenizing finished, elapsed {:?}", instant.elapsed());
         len
     }
 }

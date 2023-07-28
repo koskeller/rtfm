@@ -108,7 +108,7 @@ impl Tiny {
         if self.collections.contains_key(&name) {
             return Err(Error::UniqueViolation);
         }
-        let dimension = 768;
+        let dimension = 384;
         let distance = Distance::Cosine;
         let collection = Collection {
             dimension,

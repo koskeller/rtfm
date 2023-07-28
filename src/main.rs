@@ -26,11 +26,13 @@ async fn main() -> Result<(), hyper::Error> {
         .expect("Failed to build Octocrab");
 
     // Initialize Embeddings model.
-    let embeddings = Embeddings::new().expect("Failed to load embeddings model");
+    let embeddings = Embeddings::new()
+        .await
+        .expect("Failed to load embeddings model");
 
     // Initialize Tinyvector.
     let tiny = Tiny::new().extension();
-    // load_tinyvector(&db, tiny.clone()).await;
+    load_tinyvector(&db, tiny.clone()).await;
 
     // Spin up our server.
     tracing::info!("Starting server on {}...", cfg.listen_address);
@@ -43,6 +45,10 @@ async fn load_tinyvector(db: &Db, tiny: Tinyvector) {
         .query_embeddings_by_source("github.com:vercel:next.js:canary")
         .await
         .expect("Failed to query embeddings");
+    if embeddings.is_empty() {
+        tracing::info!("No embeddings to load");
+        return;
+    }
 
     tiny.clone()
         .write_owned()

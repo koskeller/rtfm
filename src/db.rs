@@ -172,15 +172,15 @@ impl Db {
 
     pub async fn insert_embedding(&self, data: &Embedding) -> Result<(), sqlx::Error> {
         let vector = bincode::serialize(&data.vector).expect("Failed to serialize vector");
-        let chunk = data.chunk as u32;
+        let chunk_index = data.chunk_index as u32;
         sqlx::query!(
             r#"
-        INSERT OR REPLACE INTO embeddings (source_id, doc_path, chunk, blob, vector)
+        INSERT OR REPLACE INTO embeddings (source_id, doc_path, chunk_index, blob, vector)
         VALUES (?, ?, ?, ?, ?)
         "#,
             data.source_id,
             data.doc_path,
-            chunk,
+            chunk_index,
             data.blob,
             vector,
         )
@@ -193,15 +193,15 @@ impl Db {
         let mut tx = self.pool.begin().await?;
         for data in embeddings {
             let vector = bincode::serialize(&data.vector).expect("Failed to serialize vector");
-            let chunk = data.chunk as u32;
+            let chunk_index = data.chunk_index as u32;
             sqlx::query!(
                 r#"
-        INSERT OR REPLACE INTO embeddings (source_id, doc_path, chunk, blob, vector)
+        INSERT OR REPLACE INTO embeddings (source_id, doc_path, chunk_index, blob, vector)
         VALUES (?, ?, ?, ?, ?)
         "#,
                 data.source_id,
                 data.doc_path,
-                chunk,
+                chunk_index,
                 data.blob,
                 vector,
             )
@@ -230,7 +230,7 @@ impl Db {
             embeddings.push(Embedding {
                 source_id: row.source_id,
                 doc_path: row.doc_path,
-                chunk: row.chunk as usize,
+                chunk_index: row.chunk_index as usize,
                 blob: row.blob,
                 vector,
             });
@@ -406,7 +406,7 @@ mod tests {
         let embedding = Embedding {
             source_id: "1".to_string(),
             doc_path: "2".to_string(),
-            chunk: 0,
+            chunk_index: 0,
             blob: "blob".to_string(),
             vector: vec![1.0, 2.0, 3.0],
         };
@@ -433,14 +433,14 @@ mod tests {
             Embedding {
                 source_id: "1".to_string(),
                 doc_path: "2".to_string(),
-                chunk: 0,
+                chunk_index: 0,
                 blob: "blob".to_string(),
                 vector: vec![1.0, 2.0, 3.0],
             },
             Embedding {
                 source_id: "2".to_string(),
                 doc_path: "2".to_string(),
-                chunk: 1,
+                chunk_index: 1,
                 blob: "blob".to_string(),
                 vector: vec![4.0, 5.0, 6.0],
             },
@@ -466,14 +466,14 @@ mod tests {
             Embedding {
                 source_id: "1".to_string(),
                 doc_path: "2".to_string(),
-                chunk: 0,
+                chunk_index: 0,
                 blob: "blob".to_string(),
                 vector: vec![1.0, 2.0, 3.0],
             },
             Embedding {
                 source_id: "2".to_string(),
                 doc_path: "2".to_string(),
-                chunk: 1,
+                chunk_index: 1,
                 blob: "blob".to_string(),
                 vector: vec![4.0, 5.0, 6.0],
             },
