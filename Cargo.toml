@@ -43,6 +43,7 @@ async-openai = "0.12.2"
 rayon = "1.7.0"
 rust-bert = "0.21.0"
 tch = "0.13.0"
+sailfish = "0.7.0"
 
 [dev-dependencies]
 insta = { version = "1.31.0", features = ["yaml"] }

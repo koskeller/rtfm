@@ -1,7 +1,5 @@
 use rust_bert::{
-    pipelines::sentence_embeddings::{
-        SentenceEmbeddingsBuilder, SentenceEmbeddingsModel, SentenceEmbeddingsModelType,
-    },
+    pipelines::sentence_embeddings::{SentenceEmbeddingsBuilder, SentenceEmbeddingsModel},
     RustBertError,
 };
 use std::sync::Arc;
@@ -13,19 +11,12 @@ pub struct Embeddings {
 }
 
 impl Embeddings {
-    pub async fn new() -> Result<Self, RustBertError> {
+    pub fn new() -> Result<Self, RustBertError> {
         let instant = Instant::now();
         tracing::info!("Loading remote model 'AllMiniLmL12V2'");
-
-        let blocking_task = tokio::task::spawn_blocking(|| {
-            SentenceEmbeddingsBuilder::remote(SentenceEmbeddingsModelType::AllMiniLmL12V2)
-                .create_model()
-        });
-        let model = blocking_task.await.unwrap()?;
-
-        // let model = SentenceEmbeddingsBuilder::local("model")
-        //     .with_device(tch::Device::cuda_if_available())
-        //     .create_model()?;
+        let model = SentenceEmbeddingsBuilder::local("model")
+            .with_device(tch::Device::cuda_if_available())
+            .create_model()?;
         tracing::info!("Loaded remote model, elapsed {:?}", instant.elapsed());
         Ok(Self {
             model: Arc::new(Mutex::new(model)),

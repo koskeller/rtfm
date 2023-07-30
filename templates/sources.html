@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<title>Sources</title>
+	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/skeleton/2.0.4/skeleton.min.css"
+		integrity="sha512-EZLkOqwILORob+p0BXZc+Vm3RgJBOe1Iq/0fiI7r/wJgzOFZMlsqTa29UEl6v6U6gsV4uIpsNZoV32YZqrCRCQ=="
+		crossorigin="anonymous" referrerpolicy="no-referrer" />
+	<script src="https://unpkg.com/htmx.org@1.9.4"
+		integrity="sha384-zUfuhFKKZCbHTY6aRR46gxiqszMk5tcHjsVFxnUo8VMus4kHGVdIYVbOYYNlKmHV"
+		crossorigin="anonymous"></script>
+</head>
+
+<body>
+	<div class="container">
+		<a href="/dashboard/sources/create">+ Create source</a>
+		<hr>
+		<table class="u-full-width">
+			<thead>
+				<tr>
+					<th>ID</th>
+					<th>Allowed Ext</th>
+					<th>Allowed Dirs</th>
+					<th>Ignored Dirs</th>
+					<th>Actions</th>
+				</tr>
+			</thead>
+			<tbody>
+				<tr>
+					<% for row in &data { %>
+						<td>
+							<a href="<%=row.url%>">
+								<%=row.id %>
+							</a>
+						</td>
+						<td>
+							<%= row.allowed_ext %>
+						</td>
+						<td>
+							<%= row.allowed_dirs %>
+						</td>
+						<td>
+							<%= row.ignored_dirs %>
+						</td>
+						<td>
+							<a href="<%=row.docs_url%>">Docs</a> |
+							<a href="<%=row.embeddings_url%>">Embeddings</a> <br>
+							<button hx-post="<%=row.parse_worker_url%>" hx-confirm="Start parser worker?">P</button>
+							<button hx-post="<%=row.embeddings_worker_url%>" hx-confirm="Start embeddings worker?">E</button>
+							<button hx-delete="<%=row.delete_docs_url%>" hx-confirm="Delete all documents?">DD</button>
+							<button hx-delete="<%=row.delete_embeddings_url%>" hx-confirm="Delete all embeddings?">DE</button>
+						</td>
+				</tr>
+				<% } %>
+			</tbody>
+		</table>
+	</div>
+</body>
+
+</html>

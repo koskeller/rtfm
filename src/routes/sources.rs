@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context};
 use axum::{
     extract::{Path, State},
-    routing::{post, put},
+    routing::{delete, post, put},
     Json, Router,
 };
 use chrono::Utc;
@@ -22,6 +22,8 @@ pub fn routes() -> Router<AppState> {
         "/sources",
         Router::new()
             .route("/create", put(create_source))
+            .route("/:source_id/embeddings", delete(delete_embeddings))
+            .route("/:source_id/docs", delete(delete_documents))
             .route("/:source_id/worker/parse", post(parse_source))
             .route("/:source_id/worker/embeddings", post(create_embeddings)),
     )
@@ -181,5 +183,31 @@ pub async fn create_embeddings(
         tracing::info!("Saved embeddings, elapsed {:?}", instant.elapsed());
     }
 
+    Ok(StatusCode::OK)
+}
+
+pub async fn delete_embeddings(
+    Path(source_id): Path<String>,
+    State(state): State<AppState>,
+) -> Result<StatusCode, ServerError> {
+    let _ = state
+        .db
+        .delete_embeddings_by_source(&source_id)
+        .await
+        .context("Failed to delete embeddings")
+        .map_err(|err| ServerError::DbError(err))?;
+    Ok(StatusCode::OK)
+}
+
+pub async fn delete_documents(
+    Path(source_id): Path<String>,
+    State(state): State<AppState>,
+) -> Result<StatusCode, ServerError> {
+    let _ = state
+        .db
+        .delete_documents_by_source(&source_id)
+        .await
+        .context("Failed to delete documents")
+        .map_err(|err| ServerError::DbError(err))?;
     Ok(StatusCode::OK)
 }

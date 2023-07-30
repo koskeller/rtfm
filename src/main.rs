@@ -26,9 +26,7 @@ async fn main() -> Result<(), hyper::Error> {
         .expect("Failed to build Octocrab");
 
     // Initialize Embeddings model.
-    let embeddings = Embeddings::new()
-        .await
-        .expect("Failed to load embeddings model");
+    let embeddings = Embeddings::new().expect("Failed to load embeddings model");
 
     // Initialize Tinyvector.
     let tiny = Tiny::new().extension();

@@ -77,6 +77,29 @@ impl Db {
         })
     }
 
+    pub async fn query_sources(&self) -> Result<Vec<Source>, sqlx::Error> {
+        let mut data = Vec::new();
+        let rows = sqlx::query!(r#" SELECT * FROM sources"#)
+            .fetch_all(&self.pool)
+            .await?;
+
+        for row in rows {
+            data.push(Source {
+                id: row.id,
+                owner: row.owner,
+                repo: row.repo,
+                branch: row.branch,
+                allowed_ext: row.allowed_ext.split(';').map(|x| x.to_string()).collect(),
+                allowed_dirs: row.allowed_dirs.split(';').map(|x| x.to_string()).collect(),
+                ignored_dirs: row.ignored_dirs.split(';').map(|x| x.to_string()).collect(),
+                created_at: row.created_at.parse().unwrap_or_default(),
+                updated_at: row.updated_at.parse().unwrap_or_default(),
+            });
+        }
+
+        Ok(data)
+    }
+
     pub async fn insert_document(&self, data: &Document) -> Result<(), sqlx::Error> {
         let tokens = data.tokens as u32;
         sqlx::query!(
@@ -170,6 +193,13 @@ impl Db {
         Ok(docs)
     }
 
+    pub async fn delete_documents_by_source(&self, source_id: &str) -> Result<(), sqlx::Error> {
+        let _ = sqlx::query!(r#"DELETE FROM documents WHERE source_id = ?"#, source_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     pub async fn insert_embedding(&self, data: &Embedding) -> Result<(), sqlx::Error> {
         let vector = bincode::serialize(&data.vector).expect("Failed to serialize vector");
         let chunk_index = data.chunk_index as u32;
@@ -237,6 +267,13 @@ impl Db {
         }
 
         Ok(embeddings)
+    }
+
+    pub async fn delete_embeddings_by_source(&self, source_id: &str) -> Result<(), sqlx::Error> {
+        let _ = sqlx::query!(r#"DELETE FROM embeddings WHERE source_id = ?"#, source_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 }
 
