@@ -101,23 +101,25 @@ pub async fn parse_source(
             _ => ServerError::DbError(anyhow!("Failed to select source: {}", err)),
         })?;
 
-    let tokenizer = tiktoken_rs::cl100k_base()
-        .context("Failed to instantiate tokenizer")
-        .map_err(|err| ServerError::EncodingError(err))?;
-    let parser = parser::GitHubParser::new(&source, &state.github, &tokenizer);
+    let _ = tokio::spawn(async move {
+        let tokenizer = tiktoken_rs::cl100k_base()
+            .context("Failed to instantiate tokenizer")
+            .unwrap();
+        let parser = parser::GitHubParser::new(&source, &state.github, &tokenizer);
 
-    let documents = parser
-        .get_documents()
-        .await
-        .context("Failed to parse github documents")
-        .map_err(|err| ServerError::GitHubAPIError(err))?;
+        let documents = parser
+            .get_documents()
+            .await
+            .context("Failed to parse github documents")
+            .unwrap();
 
-    let _ = state
-        .db
-        .insert_documents(&documents)
-        .await
-        .context("Failed to insert documents")
-        .map_err(|err| ServerError::DbError(err))?;
+        let _ = state
+            .db
+            .insert_documents(&documents)
+            .await
+            .context("Failed to insert documents")
+            .unwrap();
+    });
 
     Ok(StatusCode::OK)
 }
@@ -134,54 +136,49 @@ pub async fn create_embeddings(
         .map_err(|err| ServerError::DbError(err))?;
     tracing::info!("Got {} documents", documents.len());
 
-    for doc in documents {
-        let chunks = encoder::split_to_chunks(&doc.blob)
-            .context("Failed to split document to chunks")
-            .map_err(|err| ServerError::EncodingError(err))?;
-        tracing::info!("Document {} has {} chunks", doc.path, chunks.len());
-        if chunks.len() == 0 {
-            continue;
+    let _ = tokio::spawn(async move {
+        for doc in documents {
+            let chunks = encoder::split_to_chunks(&doc.blob)
+                .context("Failed to split document to chunks")
+                .unwrap();
+            tracing::info!("Document {} has {} chunks", doc.path, chunks.len());
+            if chunks.len() == 0 {
+                continue;
+            }
+
+            let instant = Instant::now();
+            tracing::info!(?chunks, "Creating embeddings");
+            let embeddings = state
+                .embeddings
+                .encode(&chunks)
+                .await
+                .context("Failed to create embeddings")
+                .unwrap();
+            tracing::info!("Created embeddings, elapsed {:?}", instant.elapsed());
+
+            let embeddings = chunks
+                .into_iter()
+                .zip(embeddings)
+                .enumerate()
+                .map(|(index, (chunk, embedding))| Embedding {
+                    source_id: doc.source_id.clone(),
+                    doc_path: doc.path.clone(),
+                    chunk_index: index,
+                    blob: chunk,
+                    vector: embedding,
+                })
+                .collect::<Vec<Embedding>>();
+
+            let instant = Instant::now();
+            let _ = state
+                .db
+                .insert_embeddings(&embeddings)
+                .await
+                .context("Failed to inserts embeddings")
+                .unwrap();
+            tracing::info!("Saved embeddings, elapsed {:?}", instant.elapsed());
         }
-
-        let instant = Instant::now();
-        tracing::info!(?chunks, "Creating embeddings");
-        let embeddings = state
-            .embeddings
-            .encode(&chunks)
-            .await
-            .context("Failed to create embeddings")
-            .map_err(|err| ServerError::Embeddings(err))?;
-        tracing::info!("Created embeddings, elapsed {:?}", instant.elapsed());
-        if chunks.len() != embeddings.len() {
-            return Err(ServerError::EncodingError(anyhow!(
-                "Chunks and embeddings len does not match: chunks {}, embeddings: {}",
-                chunks.len(),
-                embeddings.len()
-            )));
-        }
-
-        let embeddings = chunks
-            .into_iter()
-            .zip(embeddings)
-            .enumerate()
-            .map(|(index, (chunk, embedding))| Embedding {
-                source_id: doc.source_id.clone(),
-                doc_path: doc.path.clone(),
-                chunk_index: index,
-                blob: chunk,
-                vector: embedding,
-            })
-            .collect::<Vec<Embedding>>();
-
-        let instant = Instant::now();
-        let _ = state
-            .db
-            .insert_embeddings(&embeddings)
-            .await
-            .context("Failed to inserts embeddings")
-            .map_err(|err| ServerError::DbError(err))?;
-        tracing::info!("Saved embeddings, elapsed {:?}", instant.elapsed());
-    }
+    });
 
     Ok(StatusCode::OK)
 }
