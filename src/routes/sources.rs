@@ -12,7 +12,7 @@ use crate::{
     encoder,
     errors::ServerError,
     parser,
-    types::{Chunk, Source},
+    types::{Chunk, Document, Source},
     AppState,
 };
 
@@ -37,26 +37,44 @@ pub async fn parse_source(
             sqlx::Error::RowNotFound => ServerError::NoContent(anyhow!("Source does not exist")),
             _ => ServerError::DbError(anyhow!("Failed to select source: {}", err)),
         })?;
+    let collection_id = source.collection_id;
+
+    let parser = parser::GitHubParser::new(source, state.github);
+
+    let paths = parser
+        .get_paths()
+        .await
+        .context("Failed to get repo paths")
+        .map_err(|err| ServerError::GitHubAPIError(err))?;
+    let paths = parser.filter_paths(paths);
 
     let _ = tokio::spawn(async move {
-        let tokenizer = tiktoken_rs::cl100k_base()
-            .context("Failed to instantiate tokenizer")
-            .unwrap();
-        let parser =
-            parser::GitHubParser::new(source.collection_id, &source, &state.github, &tokenizer);
+        for path in paths {
+            let data = parser
+                .get_content(&path)
+                .await
+                .context("Failed to get github path content")
+                .unwrap();
 
-        let documents = parser
-            .get_documents()
-            .await
-            .context("Failed to parse github documents")
-            .unwrap();
+            let document = Document {
+                id: 0,
+                source_id,
+                collection_id,
+                path,
+                checksum: crc32fast::hash(data.as_bytes()),
+                tokens_len: 0, // TODO
+                data,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+            };
 
-        let _ = state
-            .db
-            .insert_documents(&documents)
-            .await
-            .context("Failed to insert documents")
-            .unwrap();
+            let _ = state
+                .db
+                .insert_document(&document)
+                .await
+                .context("Failed to insert document")
+                .unwrap();
+        }
     });
 
     Ok(StatusCode::OK)

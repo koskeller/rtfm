@@ -1,61 +1,22 @@
 use anyhow::{anyhow, Result};
-use chrono::Utc;
 use octocrab::Octocrab;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
-use tiktoken_rs::CoreBPE;
 use tokio::time::Instant;
 
-use crate::types::{Document, Source};
+use crate::types::Source;
 
-pub struct GitHubParser<'a, 'b, 'c> {
-    collection_id: i64,
-    source: &'a Source,
-    client: &'b Octocrab,
-    tokenizer: &'c CoreBPE,
+pub struct GitHubParser {
+    source: Source,
+    client: Octocrab,
 }
 
-impl<'a, 'b, 'c> GitHubParser<'a, 'b, 'c> {
-    pub fn new(
-        collection_id: i64,
-        source: &'a Source,
-        client: &'b Octocrab,
-        tokenizer: &'c CoreBPE,
-    ) -> Self {
-        Self {
-            collection_id,
-            source,
-            client,
-            tokenizer,
-        }
+impl GitHubParser {
+    pub fn new(source: Source, client: Octocrab) -> Self {
+        Self { source, client }
     }
 
-    pub async fn get_documents(&self) -> Result<Vec<Document>> {
-        let mut documents = Vec::new();
-        let paths = self.get_paths().await?;
-        let paths = self.filter_paths(paths);
-        for path in paths {
-            let data = self.get_content(&path).await?;
-            let created_at = Utc::now();
-            let updated_at = Utc::now();
-            let checksum = calculate_checksum(&data);
-            let tokens_len = self.token_len(&data);
-            documents.push(Document {
-                id: 0,
-                source_id: self.source.id.clone(),
-                collection_id: self.collection_id,
-                path,
-                checksum,
-                tokens_len,
-                data,
-                created_at,
-                updated_at,
-            });
-        }
-        Ok(documents)
-    }
-
-    async fn get_paths(&self) -> Result<Vec<Path>> {
+    pub async fn get_paths(&self) -> Result<Vec<Path>> {
         let route = format!(
             "/repos/{}/{}/git/trees/{}?recursive='true'",
             &self.source.owner, &self.source.repo, &self.source.branch
@@ -76,7 +37,7 @@ impl<'a, 'b, 'c> GitHubParser<'a, 'b, 'c> {
         Ok(paths)
     }
 
-    fn filter_paths(&self, files: Vec<Path>) -> Vec<Path> {
+    pub fn filter_paths(&self, files: Vec<Path>) -> Vec<Path> {
         files
             .into_iter()
             .filter(|x| self.is_target_file(x))
@@ -169,13 +130,6 @@ impl<'a, 'b, 'c> GitHubParser<'a, 'b, 'c> {
 
         true
     }
-
-    fn token_len(&self, s: &str) -> usize {
-        let instant = Instant::now();
-        let len = self.tokenizer.encode_with_special_tokens(&s).len();
-        tracing::info!("Tokenizing finished, elapsed {:?}", instant.elapsed());
-        len
-    }
 }
 
 // website/docs/r/xray_group.html.markdown
@@ -234,8 +188,4 @@ pub struct Tree {
 pub enum TreeType {
     Blob,
     Tree,
-}
-
-fn calculate_checksum(s: &str) -> u32 {
-    crc32fast::hash(s.as_bytes())
 }
