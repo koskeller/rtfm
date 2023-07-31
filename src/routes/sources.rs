@@ -7,94 +7,31 @@ use axum::{
 use chrono::Utc;
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
-use tokio::time::Instant;
 
 use crate::{
     encoder,
     errors::ServerError,
     parser,
-    types::{Embedding, Source},
+    types::{Chunk, Source},
     AppState,
 };
 
 pub fn routes() -> Router<AppState> {
-    Router::new().nest(
-        "/sources",
-        Router::new()
-            .route("/create", put(create_source))
-            .route("/:source_id/embeddings", delete(delete_embeddings))
-            .route("/:source_id/docs", delete(delete_documents))
-            .route("/:source_id/worker/parse", post(parse_source))
-            .route("/:source_id/worker/embeddings", post(create_embeddings)),
-    )
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct CreateSourceReq {
-    pub owner: String,
-    pub repo: String,
-    pub branch: String,
-    pub allowed_ext: Vec<String>,
-    pub allowed_dirs: Vec<String>,
-    pub ignored_dirs: Vec<String>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct CreateSourceResp {
-    pub id: String,
-}
-
-pub async fn create_source(
-    State(state): State<AppState>,
-    Json(payload): Json<CreateSourceReq>,
-) -> Result<(StatusCode, Json<CreateSourceResp>), ServerError> {
-    tracing::info!(
-        ?payload,
-        "Creating source {}:{}:{}",
-        payload.owner,
-        payload.repo,
-        payload.branch
-    );
-
-    let source: Source = payload.into();
-    let response = CreateSourceResp {
-        id: source.id.clone(),
-    };
-    // TODO check collection uniquiness
-    let _ = state
-        .db
-        .insert_source(&source)
-        .await
-        .context("Failed to insert source")
-        .map_err(|err| ServerError::DbError(err))?;
-
-    Ok((StatusCode::CREATED, Json(response)))
-}
-
-impl From<CreateSourceReq> for Source {
-    fn from(value: CreateSourceReq) -> Self {
-        let id = format!("github.com:{}:{}:{}", value.owner, value.repo, value.branch);
-        Self {
-            id,
-            owner: value.owner,
-            repo: value.repo,
-            branch: value.branch,
-            allowed_ext: value.allowed_ext.into_iter().collect(),
-            allowed_dirs: value.allowed_dirs.into_iter().collect(),
-            ignored_dirs: value.ignored_dirs.into_iter().collect(),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        }
-    }
+    Router::new()
+        .route("/sources", put(create_source))
+        .route("/sources/:source_id/parse", post(parse_source))
+        .route("/sources/:source_id/encode", post(encode_source))
+        .route("/sources/:source_id/chunks", delete(delete_chunks))
+        .route("/sources/:source_id/docs", delete(delete_documents))
 }
 
 pub async fn parse_source(
-    Path(source_id): Path<String>,
+    Path(source_id): Path<i64>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, ServerError> {
     let source = state
         .db
-        .select_source(&source_id)
+        .select_source(source_id)
         .await
         .map_err(|err| match err {
             sqlx::Error::RowNotFound => ServerError::NoContent(anyhow!("Source does not exist")),
@@ -105,7 +42,8 @@ pub async fn parse_source(
         let tokenizer = tiktoken_rs::cl100k_base()
             .context("Failed to instantiate tokenizer")
             .unwrap();
-        let parser = parser::GitHubParser::new(&source, &state.github, &tokenizer);
+        let parser =
+            parser::GitHubParser::new(source.collection_id, &source, &state.github, &tokenizer);
 
         let documents = parser
             .get_documents()
@@ -124,13 +62,13 @@ pub async fn parse_source(
     Ok(StatusCode::OK)
 }
 
-pub async fn create_embeddings(
-    Path(source_id): Path<String>,
+pub async fn encode_source(
+    Path(source_id): Path<i64>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, ServerError> {
     let documents = state
         .db
-        .query_documents_by_source(&source_id)
+        .query_documents_by_source(source_id)
         .await
         .context("Failed to query documents")
         .map_err(|err| ServerError::DbError(err))?;
@@ -138,73 +76,127 @@ pub async fn create_embeddings(
 
     let _ = tokio::spawn(async move {
         for doc in documents {
-            let chunks = encoder::split_to_chunks(&doc.blob)
+            let chunks = encoder::split_to_chunks(&doc.data)
                 .context("Failed to split document to chunks")
                 .unwrap();
-            tracing::info!("Document {} has {} chunks", doc.path, chunks.len());
             if chunks.len() == 0 {
                 continue;
             }
 
-            let instant = Instant::now();
-            tracing::info!(?chunks, "Creating embeddings");
-            let embeddings = state
-                .embeddings
-                .encode(&chunks)
-                .await
-                .context("Failed to create embeddings")
-                .unwrap();
-            tracing::info!("Created embeddings, elapsed {:?}", instant.elapsed());
+            for (chunk_index, data) in chunks.into_iter().enumerate() {
+                let embeddings = state
+                    .embeddings
+                    .encode(&vec![data.clone()])
+                    .await
+                    .context("Failed to create embeddings")
+                    .unwrap();
 
-            let embeddings = chunks
-                .into_iter()
-                .zip(embeddings)
-                .enumerate()
-                .map(|(index, (chunk, embedding))| Embedding {
-                    source_id: doc.source_id.clone(),
-                    doc_path: doc.path.clone(),
-                    chunk_index: index,
-                    blob: chunk,
-                    vector: embedding,
-                })
-                .collect::<Vec<Embedding>>();
+                let chunk = Chunk {
+                    id: 0,
+                    document_id: doc.id,
+                    source_id,
+                    collection_id: doc.collection_id,
+                    chunk_index,
+                    context: "".to_string(), // TODO
+                    data,
+                    vector: embeddings[0].clone(),
+                };
 
-            let instant = Instant::now();
-            let _ = state
-                .db
-                .insert_embeddings(&embeddings)
-                .await
-                .context("Failed to inserts embeddings")
-                .unwrap();
-            tracing::info!("Saved embeddings, elapsed {:?}", instant.elapsed());
+                let _ = state
+                    .db
+                    .insert_chunk(&chunk)
+                    .await
+                    .context("Failed to inserts chunks")
+                    .unwrap();
+            }
         }
+        tracing::info!("Inserted all documents");
     });
 
     Ok(StatusCode::OK)
 }
 
-pub async fn delete_embeddings(
-    Path(source_id): Path<String>,
+#[allow(unused)]
+pub async fn delete_chunks(
+    Path(source_id): Path<i64>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, ServerError> {
     let _ = state
         .db
-        .delete_embeddings_by_source(&source_id)
+        .delete_chunks_by_source(source_id)
         .await
-        .context("Failed to delete embeddings")
+        .context("Failed to delete chunks")
         .map_err(|err| ServerError::DbError(err))?;
     Ok(StatusCode::OK)
 }
 
+#[allow(unused)]
 pub async fn delete_documents(
-    Path(source_id): Path<String>,
+    Path(source_id): Path<i64>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, ServerError> {
     let _ = state
         .db
-        .delete_documents_by_source(&source_id)
+        .delete_documents_by_source(source_id)
         .await
         .context("Failed to delete documents")
         .map_err(|err| ServerError::DbError(err))?;
     Ok(StatusCode::OK)
+}
+#[derive(Serialize, Deserialize, Debug)]
+pub struct CreateSourceReq {
+    pub collection_id: i64,
+    pub owner: String,
+    pub repo: String,
+    pub branch: String,
+    pub allowed_ext: Vec<String>,
+    pub allowed_dirs: Vec<String>,
+    pub ignored_dirs: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct CreateSourceResp {
+    pub id: i64,
+}
+
+pub async fn create_source(
+    State(state): State<AppState>,
+    Json(payload): Json<CreateSourceReq>,
+) -> Result<(StatusCode, Json<CreateSourceResp>), ServerError> {
+    tracing::info!(
+        ?payload,
+        "Creating source {}:{}:{}",
+        payload.owner,
+        payload.repo,
+        payload.branch
+    );
+
+    let source: Source = payload.into();
+    let response = CreateSourceResp { id: source.id };
+    // TODO check collection uniquiness
+    let _ = state
+        .db
+        .insert_source(&source)
+        .await
+        .context("Failed to insert source")
+        .map_err(|err| ServerError::DbError(err))?;
+
+    Ok((StatusCode::CREATED, Json(response)))
+}
+
+impl From<CreateSourceReq> for Source {
+    fn from(value: CreateSourceReq) -> Self {
+        Self {
+            id: 0,
+            collection_id: value.collection_id,
+            owner: value.owner,
+            repo: value.repo,
+            branch: value.branch,
+            allowed_ext: value.allowed_ext.into_iter().collect(),
+            allowed_dirs: value.allowed_dirs.into_iter().collect(),
+            ignored_dirs: value.ignored_dirs.into_iter().collect(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
 }

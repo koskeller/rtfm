@@ -39,12 +39,12 @@ async fn main() -> Result<(), hyper::Error> {
 
 async fn load_tinyvector(db: &Db, tiny: Tinyvector) {
     let instant = Instant::now();
-    let embeddings = db
-        .query_embeddings_by_source("github.com:vercel:next.js:canary")
+    let chunks = db
+        .query_chunks_by_collection(0)
         .await
-        .expect("Failed to query embeddings");
-    if embeddings.is_empty() {
-        tracing::info!("No embeddings to load");
+        .expect("Failed to query chunks");
+    if chunks.is_empty() {
+        tracing::info!("No chunks to load");
         return;
     }
 
@@ -54,12 +54,12 @@ async fn load_tinyvector(db: &Db, tiny: Tinyvector) {
         .create_collection("default".to_string())
         .expect("Failed to create tinyvector collection");
 
-    for embedding in embeddings {
+    for chunk in chunks {
         let _ = tiny.write().await.insert_into_collection(
             "default",
-            embedding.doc_path,
-            embedding.vector,
-            embedding.blob,
+            format!("{}", chunk.document_id),
+            chunk.vector,
+            chunk.data,
         );
     }
     tracing::info!("Loaded tinyvector, elapsed {:?}", instant.elapsed());

@@ -9,14 +9,21 @@ use tokio::time::Instant;
 use crate::types::{Document, Source};
 
 pub struct GitHubParser<'a, 'b, 'c> {
+    collection_id: i64,
     source: &'a Source,
     client: &'b Octocrab,
     tokenizer: &'c CoreBPE,
 }
 
 impl<'a, 'b, 'c> GitHubParser<'a, 'b, 'c> {
-    pub fn new(source: &'a Source, client: &'b Octocrab, tokenizer: &'c CoreBPE) -> Self {
+    pub fn new(
+        collection_id: i64,
+        source: &'a Source,
+        client: &'b Octocrab,
+        tokenizer: &'c CoreBPE,
+    ) -> Self {
         Self {
+            collection_id,
             source,
             client,
             tokenizer,
@@ -28,17 +35,19 @@ impl<'a, 'b, 'c> GitHubParser<'a, 'b, 'c> {
         let paths = self.get_paths().await?;
         let paths = self.filter_paths(paths);
         for path in paths {
-            let blob = self.get_content(&path).await?;
+            let data = self.get_content(&path).await?;
             let created_at = Utc::now();
             let updated_at = Utc::now();
-            let checksum = calculate_checksum(&blob);
-            let tokens = self.token_len(&blob);
+            let checksum = calculate_checksum(&data);
+            let tokens_len = self.token_len(&data);
             documents.push(Document {
+                id: 0,
                 source_id: self.source.id.clone(),
+                collection_id: self.collection_id,
                 path,
                 checksum,
-                tokens,
-                blob,
+                tokens_len,
+                data,
                 created_at,
                 updated_at,
             });

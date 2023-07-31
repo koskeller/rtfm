@@ -18,7 +18,7 @@ pub fn routes() -> Router<AppState> {
             .route("/sources", get(get_sources))
             .route("/sources/create", get(create_source))
             // .route("/sources/:source_id/edit", get(source_form))
-            .route("/sources/:source_id/embeddings", get(get_embeddings))
+            .route("/sources/:source_id/embeddings", get(get_chunks))
             .route("/sources/:source_id/docs", get(get_docs)),
     )
 }
@@ -30,7 +30,7 @@ struct SourcesPage {
 }
 
 struct Source {
-    id: String,
+    id: i64,
     url: String,
     allowed_ext: String,
     allowed_dirs: String,
@@ -53,7 +53,7 @@ pub async fn get_sources(State(state): State<AppState>) -> Result<Html<String>, 
     let data = data
         .into_iter()
         .map(|x| Source {
-            id: x.id.clone(),
+            id: x.id,
             url: format!("https://github.com/{}/{}", x.owner, x.repo),
             allowed_ext: x.allowed_ext.into_iter().collect::<Vec<_>>().join(", "),
             allowed_dirs: x.allowed_dirs.into_iter().collect::<Vec<_>>().join(", "),
@@ -88,37 +88,37 @@ pub async fn create_source() -> Result<Html<String>, ServerError> {
 }
 
 #[derive(TemplateOnce)]
-#[template(path = "embeddings.html")]
-struct EmbeddingsPage {
-    data: Vec<Embedding>,
+#[template(path = "chunks.html")]
+struct ChunksPage {
+    data: Vec<Chunk>,
 }
 
-struct Embedding {
-    id: String,
+struct Chunk {
+    context: String,
     html: String,
 }
 
-pub async fn get_embeddings(
-    Path(source_id): Path<String>,
+pub async fn get_chunks(
+    Path(source_id): Path<i64>,
     State(state): State<AppState>,
 ) -> Result<Html<String>, ServerError> {
     let data = state
         .db
-        .query_embeddings_by_source(&source_id)
+        .query_chunks_by_source(source_id)
         .await
-        .context("Failed to query embeddings")
+        .context("Failed to query chunks")
         .map_err(|err| ServerError::DbError(err))?;
     let data = data
         .into_iter()
-        .map(|x| Embedding {
-            id: format!("{}:{}", x.doc_path, x.chunk_index),
-            html: markdown::to_html(&x.blob),
+        .map(|x| Chunk {
+            context: x.context,
+            html: markdown::to_html(&x.data),
         })
         .collect();
-    let page = EmbeddingsPage { data };
+    let page = ChunksPage { data };
     let html = page
         .render_once()
-        .context("Failed to render embeddings")
+        .context("Failed to render chunks")
         .map_err(|err| ServerError::Embeddings(err))?;
     Ok(Html(html))
 }
@@ -135,26 +135,26 @@ struct Doc {
 }
 
 pub async fn get_docs(
-    Path(source_id): Path<String>,
+    Path(source_id): Path<i64>,
     State(state): State<AppState>,
 ) -> Result<Html<String>, ServerError> {
     let data = state
         .db
-        .query_documents_by_source(&source_id)
+        .query_documents_by_source(source_id)
         .await
-        .context("Failed to query embeddings")
+        .context("Failed to query documents")
         .map_err(|err| ServerError::DbError(err))?;
     let data = data
         .into_iter()
         .map(|x| Doc {
             id: x.path,
-            html: markdown::to_html(&x.blob),
+            html: markdown::to_html(&x.data),
         })
         .collect();
     let page = DocsPage { data };
     let html = page
         .render_once()
-        .context("Failed to render embeddings")
+        .context("Failed to render documents")
         .map_err(|err| ServerError::Embeddings(err))?;
     Ok(Html(html))
 }
