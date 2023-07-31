@@ -5,6 +5,7 @@ use axum::{
     Json, Router,
 };
 use chrono::Utc;
+use futures::stream::StreamExt;
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 
@@ -19,16 +20,17 @@ use crate::{
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/sources", put(create_source))
-        .route("/sources/:source_id/parse", post(parse_source))
+        .route("/sources/:source_id/parse", post(parse))
         .route("/sources/:source_id/encode", post(encode_source))
         .route("/sources/:source_id/chunks", delete(delete_chunks))
         .route("/sources/:source_id/docs", delete(delete_documents))
 }
 
-pub async fn parse_source(
+pub async fn parse(
     Path(source_id): Path<i64>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, ServerError> {
+    tracing::info!("Got request to parse source #{}", source_id);
     let source = state
         .db
         .select_source(source_id)
@@ -39,43 +41,53 @@ pub async fn parse_source(
         })?;
     let collection_id = source.collection_id;
 
-    let parser = parser::GitHubParser::new(source, state.github);
+    tracing::info!(
+        "Parsing source #{} from collection #{}",
+        source_id,
+        collection_id
+    );
 
+    let parser = parser::GitHubParser::new(source, state.github);
     let paths = parser
         .get_paths()
         .await
         .context("Failed to get repo paths")
         .map_err(|err| ServerError::GitHubAPIError(err))?;
-    let paths = parser.filter_paths(paths);
 
-    let _ = tokio::spawn(async move {
-        for path in paths {
-            let data = parser
-                .get_content(&path)
-                .await
-                .context("Failed to get github path content")
-                .unwrap();
+    let _ = futures::stream::iter(paths)
+        .map(|path| {
+            let parser = &parser;
+            let db = &state.db;
+            async move {
+                tracing::info!("Gettings path '{}'", &path);
+                let data = parser
+                    .get_content(&path)
+                    .await
+                    .context("Failed to get github path content")
+                    .unwrap();
 
-            let document = Document {
-                id: 0,
-                source_id,
-                collection_id,
-                path,
-                checksum: crc32fast::hash(data.as_bytes()),
-                tokens_len: 0, // TODO
-                data,
-                created_at: Utc::now(),
-                updated_at: Utc::now(),
-            };
+                let document = Document {
+                    id: 0,
+                    source_id,
+                    collection_id,
+                    path,
+                    checksum: crc32fast::hash(data.as_bytes()),
+                    tokens_len: 0, // TODO
+                    data,
+                    created_at: Utc::now(),
+                    updated_at: Utc::now(),
+                };
 
-            let _ = state
-                .db
-                .insert_document(&document)
-                .await
-                .context("Failed to insert document")
-                .unwrap();
-        }
-    });
+                let _ = db
+                    .insert_document(&document)
+                    .await
+                    .context("Failed to insert document")
+                    .unwrap();
+            }
+        })
+        .buffer_unordered(20)
+        .collect::<Vec<_>>()
+        .await;
 
     Ok(StatusCode::OK)
 }

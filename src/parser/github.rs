@@ -2,10 +2,10 @@ use anyhow::{anyhow, Result};
 use octocrab::Octocrab;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
-use tokio::time::Instant;
 
 use crate::types::Source;
 
+#[derive(Clone)]
 pub struct GitHubParser {
     source: Source,
     client: Octocrab,
@@ -23,7 +23,13 @@ impl GitHubParser {
         );
         tracing::info!("Getting git tree {}", route);
         let resp: TreeResponse = self.client.get(route, None::<&()>).await?;
-
+        tracing::info!("Tree has {} paths", resp.tree.len());
+        tracing::info!(
+            "Filter settings: allowed_ext: {:?}, allowed_dirs: {:?}, ignored_dies: {:?}",
+            self.source.allowed_ext,
+            self.source.allowed_dirs,
+            self.source.ignored_dirs,
+        );
         let paths: Vec<Path> = resp
             .tree
             .into_iter()
@@ -32,16 +38,8 @@ impl GitHubParser {
                 _ => None,
             })
             .collect();
-
-        tracing::info!("Got {} paths", paths.len());
+        tracing::info!("Tree has {} target paths", paths.len());
         Ok(paths)
-    }
-
-    pub fn filter_paths(&self, files: Vec<Path>) -> Vec<Path> {
-        files
-            .into_iter()
-            .filter(|x| self.is_target_file(x))
-            .collect()
     }
 
     // pub async fn get_changed_files(
@@ -85,13 +83,11 @@ impl GitHubParser {
     // }
 
     pub async fn get_content(&self, path: &Path) -> Result<String> {
-        let instant = Instant::now();
         let url = format!(
             "https://raw.githubusercontent.com/{}/{}/{}/{}",
             &self.source.owner, &self.source.repo, &self.source.branch, path,
         );
         let resp = reqwest::get(&url).await?;
-        tracing::info!("Getting '{}', elapsed {:?}", url, instant.elapsed());
         match resp.status() {
             StatusCode::OK => match resp.text().await {
                 Ok(text) => Ok(text),

@@ -10,7 +10,7 @@ pub struct Collection {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Source {
     pub id: i64,
     pub collection_id: i64,
