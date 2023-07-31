@@ -6,6 +6,7 @@ use axum::{
 };
 use serde_json::json;
 
+#[allow(unused)]
 pub enum ServerError {
     DbError(Error),
     // ValidationError(Error),

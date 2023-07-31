@@ -106,7 +106,13 @@ pub async fn encode_source(
 
     let _ = tokio::spawn(async move {
         for doc in documents {
-            let chunks = encoder::split_to_chunks(&doc.data)
+            let head = encoder::extract_head(&doc.data).unwrap_or_default();
+            let head = encoder::extract_head_values(&head);
+            let context = format!("{} {}", head.title, head.desc);
+
+            let data = encoder::remove_head(doc.data);
+
+            let chunks = encoder::split_by_headings(&data)
                 .context("Failed to split document to chunks")
                 .unwrap();
             if chunks.len() == 0 {
@@ -114,12 +120,17 @@ pub async fn encode_source(
             }
 
             for (chunk_index, data) in chunks.into_iter().enumerate() {
-                let embeddings = state
+                let payload = format!("{}\n{}", &context, &data);
+                let sequences = vec![payload.clone()];
+                let vector = state
                     .embeddings
-                    .encode(&vec![data.clone()])
+                    .encode(&sequences)
                     .await
                     .context("Failed to create embeddings")
-                    .unwrap();
+                    .unwrap()
+                    .first()
+                    .unwrap()
+                    .to_vec();
 
                 let chunk = Chunk {
                     id: 0,
@@ -127,9 +138,9 @@ pub async fn encode_source(
                     source_id,
                     collection_id: doc.collection_id,
                     chunk_index,
-                    context: "".to_string(), // TODO
+                    context: context.clone(),
                     data,
-                    vector: embeddings[0].clone(),
+                    vector,
                 };
 
                 let _ = state
@@ -140,6 +151,7 @@ pub async fn encode_source(
                     .unwrap();
             }
         }
+
         tracing::info!("Inserted all documents");
     });
 

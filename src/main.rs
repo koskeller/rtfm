@@ -40,7 +40,7 @@ async fn main() -> Result<(), hyper::Error> {
 async fn load_tinyvector(db: &Db, tiny: Tinyvector) {
     let instant = Instant::now();
     let chunks = db
-        .query_chunks_by_collection(0)
+        .query_chunks_by_collection(1)
         .await
         .expect("Failed to query chunks");
     if chunks.is_empty() {

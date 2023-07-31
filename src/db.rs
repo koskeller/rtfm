@@ -209,7 +209,7 @@ impl Db {
     }
 
     pub async fn insert_chunk(&self, data: &Chunk) -> Result<(), sqlx::Error> {
-        let vector = bincode::serialize(&data.data).expect("Failed to serialize vector");
+        let vector = bincode::serialize(&data.vector).expect("Failed to serialize vector");
         let chunk_index = data.chunk_index as u32;
         sqlx::query!(
             r#"
