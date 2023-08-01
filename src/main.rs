@@ -11,28 +11,25 @@ async fn main() -> Result<(), hyper::Error> {
     // Tries to load tracing config from environment (RUST_LOG) or uses "debug".
     setup_tracing();
 
-    // Parse configuration from the environment.
     tracing::debug!("Initializing configuration");
     let cfg = Configuration::new();
 
-    // Initialize db and run migrations.
-    tracing::debug!("Initializing db pool");
+    tracing::debug!("Initializing db");
     let db = Db::new(&cfg.db_dsn).await.expect("Failed to setup db");
 
-    // Initialize GitHub client.
+    tracing::debug!("Initializing GitHub client");
     let gh = Octocrab::builder()
         .personal_token(cfg.github_token.clone())
         .build()
-        .expect("Failed to build Octocrab");
+        .expect("Failed to build GitHub client");
 
-    // Initialize Embeddings model.
+    tracing::debug!("Initializing embeddings model");
     let embeddings = Embeddings::new().expect("Failed to load embeddings model");
 
-    // Initialize Tinyvector.
+    tracing::debug!("Initializing vector db");
     let tiny = Tiny::new().extension();
     load_tinyvector(&db, tiny.clone()).await;
 
-    // Spin up our server.
     tracing::info!("Starting server on {}...", cfg.listen_address);
     server::run(cfg, db, gh, embeddings, tiny).await
 }
