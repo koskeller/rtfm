@@ -6,15 +6,10 @@
 	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/skeleton/2.0.4/skeleton.min.css"
 		integrity="sha512-EZLkOqwILORob+p0BXZc+Vm3RgJBOe1Iq/0fiI7r/wJgzOFZMlsqTa29UEl6v6U6gsV4uIpsNZoV32YZqrCRCQ=="
 		crossorigin="anonymous" referrerpolicy="no-referrer" />
-	<script src="https://unpkg.com/htmx.org@1.9.4"
-		integrity="sha384-zUfuhFKKZCbHTY6aRR46gxiqszMk5tcHjsVFxnUo8VMus4kHGVdIYVbOYYNlKmHV"
-		crossorigin="anonymous"></script>
 </head>
 
 <body>
 	<div class="container">
-		<a href="/dashboard/sources/create">+ Create source</a>
-		<hr>
 		<table class="u-full-width">
 			<thead>
 				<tr>
@@ -44,11 +39,7 @@
 						</td>
 						<td>
 							<a href="<%=row.docs_url%>">Docs</a> |
-							<a href="<%=row.embeddings_url%>">Embeddings</a> <br>
-							<button hx-post="<%=row.parse_worker_url%>" hx-confirm="Start parser worker?">P</button>
-							<button hx-post="<%=row.embeddings_worker_url%>" hx-confirm="Start embeddings worker?">E</button>
-							<button hx-delete="<%=row.delete_docs_url%>" hx-confirm="Delete all documents?">DD</button>
-							<button hx-delete="<%=row.delete_embeddings_url%>" hx-confirm="Delete all embeddings?">DE</button>
+							<a href="<%=row.chunks_url%>">Chunks</a> <br>
 						</td>
 				</tr>
 				<% } %>

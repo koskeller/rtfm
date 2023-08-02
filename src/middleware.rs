@@ -14,11 +14,13 @@ impl MakeRequestId for Id {
     }
 }
 
+/// Adds `X-Request-Id` header to request with randomly generated UUID.
 pub fn request_id_layer() -> SetRequestIdLayer<Id> {
     let x_request_id = HeaderName::from_static("x-request-id");
     SetRequestIdLayer::new(x_request_id.clone(), Id::default())
 }
 
+/// Propagate `X-Request-Id`s from requests to responses.
 pub fn propagate_request_id_layer() -> PropagateRequestIdLayer {
     let x_request_id = HeaderName::from_static("x-request-id");
     PropagateRequestIdLayer::new(x_request_id)

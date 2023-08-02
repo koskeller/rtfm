@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context};
 use axum::{
-    extract::{Path, State},
-    routing::{delete, post, put},
+    extract::{Path, Query, State},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use chrono::Utc;
@@ -18,12 +18,16 @@ use crate::{
 };
 
 pub fn routes() -> Router<AppState> {
-    Router::new()
-        .route("/sources", put(create_source))
-        .route("/sources/:source_id/parse", post(parse))
-        .route("/sources/:source_id/encode", post(encode_source))
-        .route("/sources/:source_id/chunks", delete(delete_chunks))
-        .route("/sources/:source_id/docs", delete(delete_documents))
+    Router::new().nest(
+        "/api",
+        Router::new()
+            .route("/search", get(search))
+            .route("/sources", put(create_source))
+            .route("/sources/:source_id/parse", post(parse))
+            .route("/sources/:source_id/encode", post(encode_source))
+            .route("/sources/:source_id/chunks", delete(delete_chunks))
+            .route("/sources/:source_id/docs", delete(delete_documents)),
+    )
 }
 
 pub async fn parse(
@@ -241,4 +245,49 @@ impl From<CreateSourceReq> for Source {
             updated_at: Utc::now(),
         }
     }
+}
+
+#[derive(Deserialize)]
+pub struct SearchQuery {
+    pub query: String,
+}
+
+#[derive(Serialize)]
+pub struct SearchResp {
+    pub score: f32,
+    pub path: String,
+    pub text: String,
+}
+
+pub async fn search(
+    params: Query<SearchQuery>,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<SearchResp>>, ServerError> {
+    tracing::info!("Searching '{}'", params.query);
+    let query = state
+        .embeddings
+        .encode(&[params.query.clone()])
+        .await
+        .context("Failed to create embedding")
+        .map_err(|err| ServerError::Embeddings(err))?;
+
+    let vectors = state
+        .tinyvector
+        .read()
+        .await
+        .get_collection("default")
+        .context("Failed to get Tinyvector collection")
+        .map_err(|err| ServerError::Embeddings(err))?
+        .get_similarity(&query[0], 10);
+
+    let mut result = Vec::with_capacity(vectors.len());
+    for n in vectors {
+        result.push(SearchResp {
+            score: n.score,
+            path: n.embedding.id,
+            text: n.embedding.blob,
+        })
+    }
+
+    Ok(Json(result))
 }

@@ -16,9 +16,7 @@ pub fn routes() -> Router<AppState> {
         Router::new()
             .route("/search", get(search))
             .route("/sources", get(get_sources))
-            .route("/sources/create", get(create_source))
-            // .route("/sources/:source_id/edit", get(source_form))
-            .route("/sources/:source_id/embeddings", get(get_chunks))
+            .route("/sources/:source_id/chunks", get(get_chunks))
             .route("/sources/:source_id/docs", get(get_docs)),
     )
 }
@@ -36,11 +34,7 @@ struct Source {
     allowed_dirs: String,
     ignored_dirs: String,
     docs_url: String,
-    embeddings_url: String,
-    parse_worker_url: String,
-    embeddings_worker_url: String,
-    delete_docs_url: String,
-    delete_embeddings_url: String,
+    chunks_url: String,
 }
 
 pub async fn get_sources(State(state): State<AppState>) -> Result<Html<String>, ServerError> {
@@ -59,30 +53,13 @@ pub async fn get_sources(State(state): State<AppState>) -> Result<Html<String>, 
             allowed_dirs: x.allowed_dirs.into_iter().collect::<Vec<_>>().join(", "),
             ignored_dirs: x.ignored_dirs.into_iter().collect::<Vec<_>>().join(", "),
             docs_url: format!("/dashboard/sources/{}/docs", &x.id),
-            embeddings_url: format!("/dashboard/sources/{}/embeddings", &x.id),
-            parse_worker_url: format!("/sources/{}/worker/parse", &x.id),
-            embeddings_worker_url: format!("/sources/{}/worker/embeddings", &x.id),
-            delete_docs_url: format!("/sources/{}/docs", &x.id),
-            delete_embeddings_url: format!("/sources/{}/embeddings", &x.id),
+            chunks_url: format!("/dashboard/sources/{}/chunk", &x.id),
         })
         .collect();
     let page = SourcesPage { data };
     let html = page
         .render_once()
         .context("Failed to render sources")
-        .map_err(|err| ServerError::Embeddings(err))?;
-    Ok(Html(html))
-}
-
-#[derive(TemplateOnce)]
-#[template(path = "source_form.html")]
-struct CreateSourcePage {}
-
-pub async fn create_source() -> Result<Html<String>, ServerError> {
-    let page = CreateSourcePage {};
-    let html = page
-        .render_once()
-        .context("Failed to render source form")
         .map_err(|err| ServerError::Embeddings(err))?;
     Ok(Html(html))
 }

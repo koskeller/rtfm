@@ -7,7 +7,6 @@ use std::{
 };
 use tokio::sync::RwLock;
 
-#[allow(clippy::module_name_repetitions)]
 pub type Tinyvector = Arc<RwLock<Tiny>>;
 
 #[derive(Debug, thiserror::Error)]

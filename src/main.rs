@@ -8,7 +8,7 @@ async fn main() -> Result<(), hyper::Error> {
     // .env used only for development, so we discard error in all other cases.
     dotenv::dotenv().ok();
 
-    // Tries to load tracing config from environment (RUST_LOG) or uses "debug".
+    // Tries to load tracing config from environment (RUST_LOG) or uses "debug" by default.
     setup_tracing();
 
     tracing::debug!("Initializing configuration");
@@ -16,6 +16,9 @@ async fn main() -> Result<(), hyper::Error> {
 
     tracing::debug!("Initializing db");
     let db = Db::new(&cfg.db_dsn).await.expect("Failed to setup db");
+
+    tracing::debug!("Running migrations");
+    let _ = db.migrate().await.expect("Failed to run migrations");
 
     tracing::debug!("Initializing GitHub client");
     let gh = Octocrab::builder()

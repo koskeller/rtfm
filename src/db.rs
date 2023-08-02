@@ -1,45 +1,36 @@
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
-use std::str::FromStr;
+use std::{collections::HashSet, str::FromStr};
 
 use crate::types::{Chunk, Document, Source};
 
 #[derive(Clone)]
 pub struct Db {
-    pool: SqlitePool,
+    pub pool: SqlitePool,
 }
 
 impl Db {
+    /// Creates a new database connection using the provided URL.
     pub async fn new(url: &str) -> Result<Self, sqlx::Error> {
         let options = SqliteConnectOptions::from_str(url)?;
         let pool = SqlitePoolOptions::new().connect_with(options).await?;
-        sqlx::migrate!("./migrations").run(&pool).await?;
         Ok(Self { pool })
     }
 
+    /// Runs database migrations from the "./migrations" directory.
+    pub async fn migrate(&self) -> Result<(), sqlx::Error> {
+        sqlx::migrate!("./migrations").run(&self.pool).await?;
+        Ok(())
+    }
+
+    /// Creates a new in-memory database connection for tests.
     pub async fn new_in_memory() -> Result<Self, sqlx::Error> {
         Db::new("sqlite::memory:").await
     }
 
     pub async fn insert_source(&self, data: &Source) -> Result<(), sqlx::Error> {
-        let allowed_ext = data
-            .allowed_ext
-            .clone()
-            .into_iter()
-            .collect::<Vec<_>>()
-            .join(";");
-        let allowed_dirs = data
-            .allowed_dirs
-            .clone()
-            .into_iter()
-            .collect::<Vec<_>>()
-            .join(";");
-        let ignored_dirs = data
-            .ignored_dirs
-            .clone()
-            .into_iter()
-            .collect::<Vec<_>>()
-            .join(";");
-
+        let allowed_ext = stringify_vec(data.allowed_ext.clone());
+        let allowed_dirs = stringify_vec(data.allowed_dirs.clone());
+        let ignored_dirs = stringify_vec(data.ignored_dirs.clone());
         sqlx::query!(
             r#"
         INSERT INTO source (collection_id, owner, repo, branch, allowed_ext, allowed_dirs, ignored_dirs, created_at, updated_at)
@@ -79,13 +70,12 @@ impl Db {
     }
 
     pub async fn query_sources(&self) -> Result<Vec<Source>, sqlx::Error> {
-        let mut data = Vec::new();
         let rows = sqlx::query!(r#" SELECT * FROM source"#)
             .fetch_all(&self.pool)
             .await?;
-
-        for row in rows {
-            data.push(Source {
+        let data = rows
+            .into_iter()
+            .map(|row| Source {
                 id: row.id,
                 collection_id: row.collection_id,
                 owner: row.owner,
@@ -96,9 +86,8 @@ impl Db {
                 ignored_dirs: row.ignored_dirs.split(';').map(|x| x.to_string()).collect(),
                 created_at: row.created_at.parse().unwrap_or_default(),
                 updated_at: row.updated_at.parse().unwrap_or_default(),
-            });
-        }
-
+            })
+            .collect();
         Ok(data)
     }
 
@@ -136,7 +125,6 @@ impl Db {
         )
         .fetch_one(&self.pool)
         .await?;
-
         Ok(Document {
             id: row.id,
             source_id: row.source_id,
@@ -182,7 +170,6 @@ impl Db {
         let rows = sqlx::query!(r#"SELECT * FROM document WHERE source_id = ?"#, source_id)
             .fetch_all(&self.pool)
             .await?;
-
         for row in rows {
             let doc = Document {
                 id: row.id,
@@ -197,7 +184,6 @@ impl Db {
             };
             docs.push(doc);
         }
-
         Ok(docs)
     }
 
@@ -285,4 +271,8 @@ impl Db {
             .await?;
         Ok(())
     }
+}
+
+fn stringify_vec(vec: HashSet<String>) -> String {
+    vec.into_iter().collect::<Vec<_>>().join(";")
 }

@@ -1,7 +1,9 @@
-# Axum Skeleton
+# RTFM
 
-## TODO
-[] Revisit tracing. Add function instrumentation.
-[] Replace Axum::Josn with https://docs.rs/axum-jsonschema/latest/axum_jsonschema/
-[] Explore https://github.com/testcontainers/testcontainers-rs
-[] Explore https://github.com/tamasfe/aide
+RTFM is an open-source project that aims to provide a single container service that leverages Language Model Learning (LLM) and semantic search to index and answer questions about documentation source. This project is designed to simplify the process of spinning semantic search API / ChatGPT like chatbot for library/framework developers.
+
+Work in progress.
+
+## License
+
+This project is licensed under the terms of the MIT license. See the [LICENSE](LICENSE) file for details.
